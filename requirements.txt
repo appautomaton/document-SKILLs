@@ -1,0 +1,4 @@
+defusedxml
+markitdown[pptx]
+pytesseract
+pdf2image
