@@ -1,4 +1,21 @@
+# Document processing
 defusedxml
 markitdown[pptx]
+lxml
+
+# PDF processing
+pypdf
+pdfplumber
+reportlab
 pytesseract
 pdf2image
+pillow
+
+# Excel/data analysis
+pandas
+openpyxl
+matplotlib
+
+# PowerPoint processing
+python-pptx
+six
