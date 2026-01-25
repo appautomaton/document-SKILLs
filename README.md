@@ -33,6 +33,17 @@ npm install -g docx pptxgenjs playwright sharp react react-dom react-icons
 npx playwright install chromium
 ```
 
+## Codex MCP (Playwright)
+
+This repo is set up to use an MCP Playwright server for browser-backed rendering. Current Codex config (`/root/.codex/config.toml`):
+
+```toml
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--headless", "--no-sandbox", "--user-data-dir", "/root/.cache/ms-playwright/mcp-chromium-profile"]
+startup_timeout_sec = 60
+```
+
 ## Output Organization
 
 > [!TIP]
