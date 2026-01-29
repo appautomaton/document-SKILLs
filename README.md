@@ -1,6 +1,6 @@
 # Document Processing Skills
 
-Official Anthropic skills for Word, PDF, PowerPoint, and Excel manipulation in Claude Code.
+A set of improved SKILLs from the Official Anthropic skills for Word, PDF, PowerPoint, and Excel manipulation in Claude Code.
 
 ## How to Use
 
