@@ -4,18 +4,19 @@ Official Anthropic skills for Word, PDF, PowerPoint, and Excel manipulation in C
 
 ## How to Use
 
-### Option 1: Git Subtree (Recommended)
+### Option 1: Git Subtree (Recommended For Claude Code)
 
 ```bash
 git subtree add --prefix=.claude/skills \
   git@github.com:appautomaton/document-SKILLs.git main --squash
 ```
 
-### Option 2: Clone and Copy
+### Option 2: Clone and Copy (For other AGENTs)
 
 ```bash
 git clone git@github.com:appautomaton/document-SKILLs.git /tmp/doc-skills
-cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} .claude/skills/
+cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} .{your_desired_path}/skills/
+{do the same for the requirements.txt}
 rm -rf /tmp/doc-skills
 ```
 
