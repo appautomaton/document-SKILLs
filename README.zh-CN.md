@@ -6,22 +6,21 @@
 
 ## 使用方法
 
-### Claude Code：Git Subtree（推荐）
+### 方案 1：Git Subtree
 
 ```bash
-# 使用默认分支（目前是 master）
-git subtree add --prefix=.claude/skills \
+# 将 <skills_dir> 替换为你的 agent skills 路径
+git subtree add --prefix=<skills_dir> \
   https://github.com/appautomaton/document-SKILLs.git master --squash
 ```
 
-### Codex / 其他 Agent：克隆并复制
+### 方案 2：克隆并复制
 
 ```bash
 git clone https://github.com/appautomaton/document-SKILLs.git /tmp/doc-skills
-SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"  # 如需可改为你的 agent skills 目录
-mkdir -p "$SKILLS_DIR"
-cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} "$SKILLS_DIR/"
-cp /tmp/doc-skills/requirements.txt "$SKILLS_DIR/requirements.txt"
+mkdir -p <skills_dir>
+cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} <skills_dir>/
+cp /tmp/doc-skills/requirements.txt <skills_dir>/requirements.txt
 rm -rf /tmp/doc-skills
 ```
 
@@ -41,11 +40,8 @@ sudo apt-get install -y pandoc libreoffice poppler-utils tesseract-ocr
 # 可选（PDF CLI 工作流）
 sudo apt-get install -y qpdf
 
-# Python 包（Claude Code）
-uv pip install -r .claude/skills/requirements.txt
-# 或用于 Codex/其他 agents
-SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
-uv pip install -r "$SKILLS_DIR/requirements.txt"
+# Python 包
+uv pip install -r <skills_dir>/requirements.txt
 
 # NPM 包
 npm install -g docx pptxgenjs playwright sharp react react-dom react-icons

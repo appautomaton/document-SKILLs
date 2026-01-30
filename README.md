@@ -6,22 +6,21 @@ A set of improved SKILLs from the Official Anthropic skills for Word, PDF, Power
 
 ## How to Use
 
-### Claude Code: Git Subtree (Recommended)
+### Option 1: Git Subtree
 
 ```bash
-# Use default branch (currently master)
-git subtree add --prefix=.claude/skills \
+# Replace <skills_dir> with your agent's skills path
+git subtree add --prefix=<skills_dir> \
   https://github.com/appautomaton/document-SKILLs.git master --squash
 ```
 
-### Codex / Other Agents: Clone and Copy
+### Option 2: Clone and Copy
 
 ```bash
 git clone https://github.com/appautomaton/document-SKILLs.git /tmp/doc-skills
-SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"  # set to your agent's skills dir if needed
-mkdir -p "$SKILLS_DIR"
-cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} "$SKILLS_DIR/"
-cp /tmp/doc-skills/requirements.txt "$SKILLS_DIR/requirements.txt"
+mkdir -p <skills_dir>
+cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} <skills_dir>/
+cp /tmp/doc-skills/requirements.txt <skills_dir>/requirements.txt
 rm -rf /tmp/doc-skills
 ```
 
@@ -41,11 +40,8 @@ sudo apt-get install -y pandoc libreoffice poppler-utils tesseract-ocr
 # Optional (PDF CLI workflows)
 sudo apt-get install -y qpdf
 
-# Python packages (Claude Code)
-uv pip install -r .claude/skills/requirements.txt
-# or, for Codex/other agents
-SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
-uv pip install -r "$SKILLS_DIR/requirements.txt"
+# Python packages
+uv pip install -r <skills_dir>/requirements.txt
 
 # NPM packages
 npm install -g docx pptxgenjs playwright sharp react react-dom react-icons
