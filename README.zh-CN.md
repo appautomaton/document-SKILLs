@@ -11,13 +11,13 @@
 ```bash
 # 使用默认分支（目前是 master）
 git subtree add --prefix=.claude/skills \
-  git@github.com:appautomaton/document-SKILLs.git master --squash
+  https://github.com/appautomaton/document-SKILLs.git master --squash
 ```
 
 ### Codex / 其他 Agent：克隆并复制
 
 ```bash
-git clone git@github.com:appautomaton/document-SKILLs.git /tmp/doc-skills
+git clone https://github.com/appautomaton/document-SKILLs.git /tmp/doc-skills
 SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"  # 如需可改为你的 agent skills 目录
 mkdir -p "$SKILLS_DIR"
 cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} "$SKILLS_DIR/"

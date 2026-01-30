@@ -11,13 +11,13 @@ A set of improved SKILLs from the Official Anthropic skills for Word, PDF, Power
 ```bash
 # Use default branch (currently master)
 git subtree add --prefix=.claude/skills \
-  git@github.com:appautomaton/document-SKILLs.git master --squash
+  https://github.com/appautomaton/document-SKILLs.git master --squash
 ```
 
 ### Codex / Other Agents: Clone and Copy
 
 ```bash
-git clone git@github.com:appautomaton/document-SKILLs.git /tmp/doc-skills
+git clone https://github.com/appautomaton/document-SKILLs.git /tmp/doc-skills
 SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"  # set to your agent's skills dir if needed
 mkdir -p "$SKILLS_DIR"
 cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} "$SKILLS_DIR/"
