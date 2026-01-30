@@ -40,7 +40,9 @@ sudo apt-get install -y pandoc libreoffice poppler-utils tesseract-ocr
 # Optional (PDF CLI workflows)
 sudo apt-get install -y qpdf
 
-# Python packages
+# Python packages (recommended)
+uv venv
+source .venv/bin/activate
 uv pip install -r <skills_dir>/requirements.txt
 
 # NPM packages
