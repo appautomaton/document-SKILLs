@@ -36,7 +36,7 @@ done
 ## 依赖
 
 > [!NOTE]
-> Python 脚本使用 PEP 723 内联元数据。通过 `uv run` 运行即可自动解析依赖 — 无需手动 `pip install`。
+> Python 脚本使用 [uv](https://docs.astral.sh/uv/) + PEP 723 内联元数据 — 无需虚拟环境或 `pip install`。直接 `uv run` 即可。
 
 系统工具：
 
@@ -55,20 +55,6 @@ Node.js 包（仅 docx 和 pptx 技能需要）：
 cd docx && npm install
 cd ../pptx && npm install
 ```
-
-## Codex MCP（Playwright）
-
-本仓库支持 MCP Playwright 服务进行浏览器渲染。示例 Codex 配置（`~/.codex/config.toml`）：
-
-```toml
-[mcp_servers.playwright]
-command = "npx"
-args = ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--headless", "--no-sandbox", "--user-data-dir", "/root/.cache/ms-playwright/mcp-chromium-profile"]
-startup_timeout_sec = 60
-```
-
-> [!IMPORTANT]
-> 请将 `--user-data-dir` 调整到你环境中可写的位置。
 
 ## 输出组织
 

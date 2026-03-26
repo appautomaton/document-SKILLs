@@ -287,15 +287,6 @@ with open("encrypted.pdf", "wb") as output:
 | OCR scanned PDFs | pytesseract | Convert to image first |
 | Fill PDF forms | pypdf | See forms.md |
 
-## Dependencies
-
-Python packages are declared via PEP 723 inline metadata in each script and resolved automatically by `uv run`. No manual `pip install` needed.
-
-System tools (install via Homebrew):
-- **Poppler**: `brew install poppler` — `pdftoppm`, `pdftotext`, `pdfimages`
-- **Tesseract** (optional): `brew install tesseract` — OCR for scanned PDFs
-- **qpdf** (optional): `brew install qpdf` — PDF merging, splitting, encryption, repair
-
 ## Next Steps
 
 - **Complex table extraction**: For multi-page tables, borderless tables, and detection tuning, see [tables.md](tables.md)

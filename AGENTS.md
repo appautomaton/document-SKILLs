@@ -47,7 +47,7 @@ Each skill that needs Node packages has its own `package.json` and `node_modules
 
 pdf and xlsx do not use Node packages.
 
-## System Tools (Homebrew)
+## System Tools (`brew` or `apt-get`)
 
 ### Required
 

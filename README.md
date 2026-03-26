@@ -36,7 +36,7 @@ done
 ## Dependencies
 
 > [!NOTE]
-> Python scripts use PEP 723 inline metadata. Run them with `uv run` and dependencies resolve automatically — no manual `pip install` needed.
+> Python scripts use [uv](https://docs.astral.sh/uv/) + PEP 723 inline metadata — no virtual environments or `pip install` needed. Just `uv run`.
 
 System tools:
 
@@ -55,20 +55,6 @@ Node.js packages (docx and pptx skills only):
 cd docx && npm install
 cd ../pptx && npm install
 ```
-
-## Codex MCP (Playwright)
-
-This repo supports an MCP Playwright server for browser-backed rendering. Example Codex config (`~/.codex/config.toml`):
-
-```toml
-[mcp_servers.playwright]
-command = "npx"
-args = ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--headless", "--no-sandbox", "--user-data-dir", "/root/.cache/ms-playwright/mcp-chromium-profile"]
-startup_timeout_sec = 60
-```
-
-> [!IMPORTANT]
-> Adjust `--user-data-dir` to a writable location for your environment.
 
 ## Output Organization
 

@@ -186,13 +186,3 @@ pdftoppm -jpeg -r 150 -f 2 -l 5 document.pdf page  # Converts only pages 2-5
 - Avoid verbose variable names and redundant operations
 - Avoid unnecessary print statements
 
-## Dependencies
-
-Python packages are declared via PEP 723 inline metadata in each script and resolved automatically by `uv run`. No manual `pip install` needed.
-
-Node.js packages are in `package.json` in this directory. Run `npm install` here once to set up `node_modules/`.
-
-System tools (install via Homebrew):
-- **Pandoc**: `brew install pandoc` — DOCX to Markdown conversion
-- **LibreOffice**: `brew install --cask libreoffice` — `soffice --headless` for PDF conversion
-- **Poppler**: `brew install poppler` — `pdftoppm` for PDF-to-image conversion

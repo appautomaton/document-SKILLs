@@ -494,14 +494,6 @@ from openpyxl import load_workbook
 wb = load_workbook("large.xlsx", read_only=True)  # Read-only mode
 ```
 
-## Dependencies
-
-Python packages are declared via PEP 723 inline metadata in each script and resolved automatically by `uv run`. No manual `pip install` needed.
-
-System tools (install via Homebrew):
-- **LibreOffice**: `brew install --cask libreoffice` — `soffice --headless` for formula recalculation
-- **coreutils** (optional): `brew install coreutils` — `gtimeout` for LibreOffice timeout on macOS
-
 ## Utilities
 
 ### Auto-Adjust Column Widths
