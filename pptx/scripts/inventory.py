@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["python-pptx", "Pillow"]
+# ///
 """
 Extract structured text content from PowerPoint presentations.
 
@@ -19,7 +22,7 @@ Main Functions:
     save_inventory: Save extracted data to JSON
 
 Usage:
-    python inventory.py input.pptx output.json
+    uv run python inventory.py input.pptx output.json
 """
 
 import argparse
@@ -54,10 +57,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python inventory.py presentation.pptx inventory.json
+  uv run python inventory.py presentation.pptx inventory.json
     Extracts text inventory with correct absolute positions for grouped shapes
 
-  python inventory.py presentation.pptx inventory.json --issues-only
+  uv run python inventory.py presentation.pptx inventory.json --issues-only
     Extracts only text shapes that have overflow or overlap issues
 
 The output JSON includes:

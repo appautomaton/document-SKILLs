@@ -2,57 +2,63 @@
 
 English | [中文](README.zh-CN.md)
 
-A set of improved SKILLs from the Official Anthropic skills for Word, PDF, PowerPoint, and Excel manipulation in Claude Code and Codex.
+A collection of Claude Code / Codex skills for document manipulation — PDF extraction/forms, Excel analysis/formulas, Word, and PowerPoint.
 
-## How to Use
+## Quick start
 
-### Option 1: Git Subtree
-
-```bash
-# Replace <skills_dir> with your agent's skills path
-git subtree add --prefix=<skills_dir> \
-  https://github.com/appautomaton/document-SKILLs.git master --squash
-```
-
-### Option 2: Clone and Copy
+> [!TIP]
+> Clone this repo anywhere you keep your skills, then symlink each skill into your agent's skills directory.
 
 ```bash
-git clone https://github.com/appautomaton/document-SKILLs.git /tmp/doc-skills
-mkdir -p <skills_dir>
-cp -r /tmp/doc-skills/{docx,pdf,pptx,xlsx} <skills_dir>/
-cp /tmp/doc-skills/requirements.txt <skills_dir>/requirements.txt
-rm -rf /tmp/doc-skills
+git clone https://github.com/appautomaton/document-SKILLs.git ~/skills/documents
+cd ~/skills/documents
+
+# Claude Code
+for s in docx pdf pptx xlsx; do
+  ln -s "$(pwd)/$s" ~/.claude/skills/$s
+done
+
+# Codex
+for s in docx pdf pptx xlsx; do
+  ln -s "$(pwd)/$s" ~/.codex/skills/$s
+done
 ```
 
-If you already have a `requirements.txt` in your skills directory, merge instead of overwriting.
-`requirements.txt` lists the Python dependencies used by these skills.
-Recommended: use `uv` and add a “use uv” requirement to your own agent rules (adapt to your environment/install method).
+## Skills
 
-## Dependencies (Install Once)
+| Skill | What it does |
+|---|---|
+| [docx](docx/) | Create, edit, and analyze Word documents — tracked changes, comments, formatting |
+| [pdf](pdf/) | Extract text/tables, fill forms, merge/split, OCR scanned pages |
+| [pptx](pptx/) | Edit existing presentations — reorder slides, replace text, thumbnails |
+| [xlsx](xlsx/) | Create/edit spreadsheets — formulas, formatting, data analysis |
+
+## Dependencies
 
 > [!NOTE]
-> Use an isolated environment where possible; `uv` is the recommended installer.
+> Python scripts use PEP 723 inline metadata. Run them with `uv run` and dependencies resolve automatically — no manual `pip install` needed.
+
+System tools:
 
 ```bash
-# System packages
-sudo apt-get install -y pandoc libreoffice poppler-utils tesseract-ocr
+# macOS
+brew install pandoc poppler tesseract qpdf
+brew install --cask libreoffice
 
-# Optional (PDF CLI workflows)
-sudo apt-get install -y qpdf
+# Linux
+sudo apt-get install -y pandoc poppler-utils tesseract-ocr qpdf libreoffice
+```
 
-# Python packages (recommended)
-uv venv
-source .venv/bin/activate
-uv pip install -r <skills_dir>/requirements.txt
+Node.js packages (docx and pptx skills only):
 
-# NPM packages
-npm install -g docx pptxgenjs playwright sharp react react-dom react-icons
-npx playwright install chromium
+```bash
+cd docx && npm install
+cd ../pptx && npm install
 ```
 
 ## Codex MCP (Playwright)
 
-This repo is set up to use an MCP Playwright server for browser-backed rendering. Example Codex config (`$CODEX_HOME/config.toml` or `~/.codex/config.toml`):
+This repo supports an MCP Playwright server for browser-backed rendering. Example Codex config (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.playwright]
@@ -69,41 +75,21 @@ startup_timeout_sec = 60
 > [!TIP]
 > Add `outputs/` to your `.gitignore` to keep generated files out of version control.
 
-Organize all generated files in a dedicated `outputs/` directory:
-
 ```
 outputs/
-└── <document-name>/           # One folder per document project
-    ├── final.pptx             # Final output file
-    ├── inventory.json         # Intermediate files
+└── <document-name>/
+    ├── final.pptx
+    ├── inventory.json
     ├── replacements.json
-    ├── unpacked/              # OOXML extraction directory
-    ├── thumbnails/            # Visual validation images
-    └── images/                # Generated assets
-```
-
-### Naming Convention
-
-Use descriptive, lowercase, hyphenated names:
-
-- `outputs/quarterly-report/`
-- `outputs/client-proposal/`
-- `outputs/budget-2024/`
-
-### Example Workflow
-
-```bash
-# Create output directory
-mkdir -p outputs/sales-deck/
-
-# Generate presentation
-python pptx/scripts/inventory.py template.pptx outputs/sales-deck/inventory.json
-python pptx/scripts/replace.py template.pptx outputs/sales-deck/replacements.json outputs/sales-deck/final.pptx
-
-# Validate visually
-python pptx/scripts/thumbnail.py outputs/sales-deck/final.pptx outputs/sales-deck/thumbnails/
+    ├── unpacked/
+    ├── thumbnails/
+    └── images/
 ```
 
 ## Source
 
 Based on [Anthropic's official skills](https://github.com/anthropics/skills).
+
+---
+
+🤖 Checkout [linux.do](https://linux.do) for more fun stuff about AI!

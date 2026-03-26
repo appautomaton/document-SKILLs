@@ -1,6 +1,8 @@
 ---
 name: xlsx
 description: "Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization. When Claude needs to work with spreadsheets (.xlsx, .xlsm, .csv, .tsv, etc) for: (1) Creating new spreadsheets with formulas and formatting, (2) Reading or analyzing data, (3) Modify existing spreadsheets while preserving formulas, (4) Data analysis and visualization in spreadsheets, or (5) Recalculating formulas"
+license: Proprietary. LICENSE.txt has complete terms
+metadata:
 ---
 
 # Requirements for Outputs
@@ -132,7 +134,7 @@ This applies to ALL calculations - totals, percentages, ratios, differences, etc
 4. **Save**: Write to file
 5. **Recalculate formulas (MANDATORY IF USING FORMULAS)**: Use the recalc.py script
    ```bash
-   python recalc.py output.xlsx
+   uv run python recalc.py output.xlsx
    ```
 6. **Verify and fix any errors**: 
    - The script returns JSON with error details
@@ -205,12 +207,12 @@ wb.save('modified.xlsx')
 Excel files created or modified by openpyxl contain formulas as strings but not calculated values. Use the provided `recalc.py` script to recalculate formulas:
 
 ```bash
-python recalc.py <excel_file> [timeout_seconds]
+uv run python recalc.py <excel_file> [timeout_seconds]
 ```
 
 Example:
 ```bash
-python recalc.py output.xlsx 30
+uv run python recalc.py output.xlsx 30
 ```
 
 The script:
@@ -491,6 +493,14 @@ df = pd.read_excel("data.xlsx", dtype={"id": str, "amount": float})
 from openpyxl import load_workbook
 wb = load_workbook("large.xlsx", read_only=True)  # Read-only mode
 ```
+
+## Dependencies
+
+Python packages are declared via PEP 723 inline metadata in each script and resolved automatically by `uv run`. No manual `pip install` needed.
+
+System tools (install via Homebrew):
+- **LibreOffice**: `brew install --cask libreoffice` — `soffice --headless` for formula recalculation
+- **coreutils** (optional): `brew install coreutils` — `gtimeout` for LibreOffice timeout on macOS
 
 ## Utilities
 

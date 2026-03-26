@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "dependencies": {
+    "pptxgenjs": "^4",
+    "playwright": "^1",
+    "sharp": "^0.33",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-icons": "^5"
+  }
+}

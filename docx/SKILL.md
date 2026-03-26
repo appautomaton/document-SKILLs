@@ -1,6 +1,7 @@
 ---
 name: docx
 description: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
+metadata:
 ---
 
 # DOCX creation, editing, and analysis
@@ -42,7 +43,7 @@ pandoc --track-changes=all path-to-file.docx -o output.md
 You need raw XML access for: comments, complex formatting, document structure, embedded media, and metadata. For any of these features, you'll need to unpack a document and read its raw XML contents.
 
 #### Unpacking a file
-`python ooxml/scripts/unpack.py <office_file> <output_directory>`
+`uv run python ooxml/scripts/unpack.py <office_file> <output_directory>`
 
 #### Key file structures
 * `word/document.xml` - Main document contents
@@ -65,9 +66,9 @@ When editing an existing Word document, use the **Document library** (a Python l
 
 ### Workflow
 1. **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for the Document library API and XML patterns for directly editing document files.
-2. Unpack the document: `python ooxml/scripts/unpack.py <office_file> <output_directory>`
+2. Unpack the document: `uv run python ooxml/scripts/unpack.py <office_file> <output_directory>`
 3. Create and run a Python script using the Document library (see "Document Library" section in ooxml.md)
-4. Pack the final document: `python ooxml/scripts/pack.py <input_directory> <office_file>`
+4. Pack the final document: `uv run python ooxml/scripts/pack.py <input_directory> <office_file>`
 
 The Document library provides both high-level methods for common operations and direct DOM access for complex scenarios.
 
@@ -113,7 +114,7 @@ Example - Changing "30 days" to "60 days" in a sentence:
 
 3. **Read documentation and unpack**:
    - **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Pay special attention to the "Document Library" and "Tracked Change Patterns" sections.
-   - **Unpack the document**: `python ooxml/scripts/unpack.py <file.docx> <dir>`
+   - **Unpack the document**: `uv run python ooxml/scripts/unpack.py <file.docx> <dir>`
    - **Note the suggested RSID**: The unpack script will suggest an RSID to use for your tracked changes. Copy this RSID for use in step 4b.
 
 4. **Implement changes in batches**: Group changes logically (by section, by type, or by proximity) and implement them together in a single script. This approach:
@@ -136,7 +137,7 @@ Example - Changing "30 days" to "60 days" in a sentence:
 
 5. **Pack the document**: After all batches are complete, convert the unpacked directory back to .docx:
    ```bash
-   python ooxml/scripts/pack.py unpacked reviewed-document.docx
+   uv run python ooxml/scripts/pack.py unpacked reviewed-document.docx
    ```
 
 6. **Final verification**: Do a comprehensive check of the complete document:
@@ -187,10 +188,11 @@ pdftoppm -jpeg -r 150 -f 2 -l 5 document.pdf page  # Converts only pages 2-5
 
 ## Dependencies
 
-Required dependencies (install if not available):
+Python packages are declared via PEP 723 inline metadata in each script and resolved automatically by `uv run`. No manual `pip install` needed.
 
-- **pandoc**: `sudo apt-get install pandoc` (for text extraction)
-- **docx**: `npm install -g docx` (for creating new documents)
-- **LibreOffice**: `sudo apt-get install libreoffice` (for PDF conversion)
-- **Poppler**: `sudo apt-get install poppler-utils` (for pdftoppm to convert PDF to images)
-- **defusedxml**: `pip install defusedxml` (for secure XML parsing)
+Node.js packages are in `package.json` in this directory. Run `npm install` here once to set up `node_modules/`.
+
+System tools (install via Homebrew):
+- **Pandoc**: `brew install pandoc` — DOCX to Markdown conversion
+- **LibreOffice**: `brew install --cask libreoffice` — `soffice --headless` for PDF conversion
+- **Poppler**: `brew install poppler` — `pdftoppm` for PDF-to-image conversion

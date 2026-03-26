@@ -304,6 +304,7 @@ with pdfplumber.open("large.pdf") as pdf:
 
 ## Dependencies
 
+Python deps are declared via PEP 723 inline metadata and resolved automatically by `uv run`. For ad-hoc scripts:
 ```bash
-pip install pdfplumber pandas openpyxl
+uv run --with pdfplumber --with pandas --with openpyxl script.py
 ```

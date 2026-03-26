@@ -1,9 +1,12 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["lxml"]
+# ///
 """
 Command line tool to validate Office document XML files against XSD schemas and tracked changes.
 
 Usage:
-    python validate.py <dir> --original <original_file>
+    uv run python validate.py <dir> --original <original_file>
 """
 
 import argparse

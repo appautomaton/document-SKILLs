@@ -98,8 +98,9 @@ ocr_pdf("scanned_document.pdf", "extracted_text.txt")
 
 ### Python packages
 
+Python deps are declared via PEP 723 inline metadata and resolved automatically by `uv run`. For ad-hoc scripts:
 ```bash
-pip install pytesseract pdf2image pillow
+uv run --with pytesseract --with pdf2image --with Pillow script.py
 ```
 
 ### Tesseract OCR engine

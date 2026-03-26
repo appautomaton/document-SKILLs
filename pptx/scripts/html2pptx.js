@@ -133,14 +133,26 @@ async function addBackground(slideData, targetSlide, tmpDir) {
 function addElements(slideData, targetSlide, pres) {
   for (const el of slideData.elements) {
     if (el.type === 'image') {
-      let imagePath = el.src.startsWith('file://') ? el.src.replace('file://', '') : el.src;
-      targetSlide.addImage({
-        path: imagePath,
-        x: el.position.x,
-        y: el.position.y,
-        w: el.position.w,
-        h: el.position.h
-      });
+      if (el.data) {
+        targetSlide.addImage({
+          data: el.data,
+          x: el.position.x,
+          y: el.position.y,
+          w: el.position.w,
+          h: el.position.h
+        });
+      } else if (el.src) {
+        let imagePath = el.src.startsWith('file://') ? el.src.replace('file://', '') : el.src;
+        targetSlide.addImage({
+          path: imagePath,
+          x: el.position.x,
+          y: el.position.y,
+          w: el.position.w,
+          h: el.position.h
+        });
+      } else {
+        throw new Error('Image element missing src/data');
+      }
     } else if (el.type === 'line') {
       targetSlide.addShape(pres.ShapeType.line, {
         x: el.x1,
@@ -186,9 +198,12 @@ function addElements(slideData, targetSlide, pres) {
       if (el.style.margin) listOptions.margin = el.style.margin;
       targetSlide.addText(el.items, listOptions);
     } else {
-      // Check if text is single-line (height suggests one line)
+      // Check if text is single-line (height suggests one line).
+      // `el.position.h` is stored in inches, while lineSpacing/fontSize are in points.
+      // Compare like-for-like units before applying the single-line width heuristic.
       const lineHeight = el.style.lineSpacing || el.style.fontSize * 1.2;
-      const isSingleLine = el.position.h <= lineHeight * 1.5;
+      const elementHeightPt = el.position.h * 72;
+      const isSingleLine = elementHeightPt <= lineHeight * 1.5;
 
       let adjustedX = el.position.x;
       let adjustedW = el.position.w;
@@ -534,9 +549,33 @@ async function extractSlideData(page) {
     const placeholders = [];
     const textTags = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI'];
     const processed = new Set();
+    let renderIdCounter = 0;
 
     document.querySelectorAll('*').forEach((el) => {
       if (processed.has(el)) return;
+
+      // Font Awesome icons: the local FontAwesome JS converts <i class="fa-..."> into inline SVG.
+      // Our converter doesn't support SVG natively, so we rasterize these SVG nodes via Playwright
+      // element screenshots and embed them as PNGs in the PPTX.
+      if (el.tagName.toLowerCase() === 'svg' && (el.classList.contains('svg-inline--fa') || el.hasAttribute('data-fa-i2svg'))) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const renderId = `fa-svg-${renderIdCounter++}`;
+          el.setAttribute('data-html2pptx-render-id', renderId);
+          elements.push({
+            type: 'image',
+            renderId,
+            position: {
+              x: pxToInch(rect.left),
+              y: pxToInch(rect.top),
+              w: pxToInch(rect.width),
+              h: pxToInch(rect.height)
+            }
+          });
+          processed.add(el);
+          return;
+        }
+      }
 
       // Validate text elements don't have backgrounds, borders, or shadows
       if (textTags.includes(el.tagName)) {
@@ -559,7 +598,7 @@ async function extractSlideData(page) {
       }
 
       // Extract placeholder elements (for charts, etc.)
-      if (el.className && el.className.includes('placeholder')) {
+      if (el.classList && el.classList.contains('placeholder')) {
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) {
           errors.push(
@@ -916,13 +955,15 @@ async function extractSlideData(page) {
 async function html2pptx(htmlFile, pres, options = {}) {
   const {
     tmpDir = process.env.TMPDIR || '/tmp',
-    slide = null
+    slide = null,
+    deviceScaleFactor = 3
   } = options;
 
   try {
-    // Use Chrome on macOS, default Chromium on Unix
+    // Use system Chrome on macOS only when Playwright browsers aren't configured.
+    // This keeps the pipeline reliable in sandboxed environments where system Chrome can crash.
     const launchOptions = { env: { TMPDIR: tmpDir } };
-    if (process.platform === 'darwin') {
+    if (process.platform === 'darwin' && !process.env.PLAYWRIGHT_BROWSERS_PATH) {
       launchOptions.channel = 'chrome';
     }
 
@@ -935,7 +976,7 @@ async function html2pptx(htmlFile, pres, options = {}) {
     const validationErrors = [];
 
     try {
-      const page = await browser.newPage();
+      const page = await browser.newPage({ deviceScaleFactor });
 
       await page.goto(`file://${filePath}`);
 
@@ -946,7 +987,24 @@ async function html2pptx(htmlFile, pres, options = {}) {
         height: Math.round(bodyDimensions.height)
       });
 
+      // Ensure local fonts are ready (and allow FontAwesome JS to replace <i> with <svg>).
+      await page.waitForSelector('svg[data-fa-i2svg], svg.svg-inline--fa', { timeout: 1000 }).catch(() => {});
+      await page.evaluate(async () => {
+        if (document.fonts && document.fonts.status !== 'loaded') {
+          await document.fonts.ready;
+        }
+      });
+
       slideData = await extractSlideData(page);
+
+      // Rasterize extracted SVG icons into PNG data URIs.
+      for (const el of slideData.elements) {
+        if (el.type !== 'image' || !el.renderId) continue;
+        const locator = page.locator(`[data-html2pptx-render-id=\"${el.renderId}\"]`);
+        const pngBuffer = await locator.screenshot({ type: 'png', omitBackground: true });
+        el.data = `image/png;base64,${pngBuffer.toString('base64')}`;
+        delete el.renderId;
+      }
     } finally {
       await browser.close();
     }

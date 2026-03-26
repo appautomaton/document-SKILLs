@@ -1,6 +1,8 @@
 ---
 name: pdf
 description: Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.
+license: Proprietary. LICENSE.txt has complete terms
+metadata:
 ---
 
 # PDF Processing Guide
@@ -211,7 +213,7 @@ pdftk input.pdf rotate 1east output rotated.pdf
 
 ### Extract Text from Scanned PDFs
 ```python
-# Requires: pip install pytesseract pdf2image
+# Dependencies declared via PEP 723 in each script; resolved automatically by uv run
 import pytesseract
 from pdf2image import convert_from_path
 
@@ -284,6 +286,15 @@ with open("encrypted.pdf", "wb") as output:
 | Command line merge | qpdf | `qpdf --empty --pages ...` |
 | OCR scanned PDFs | pytesseract | Convert to image first |
 | Fill PDF forms | pypdf | See forms.md |
+
+## Dependencies
+
+Python packages are declared via PEP 723 inline metadata in each script and resolved automatically by `uv run`. No manual `pip install` needed.
+
+System tools (install via Homebrew):
+- **Poppler**: `brew install poppler` — `pdftoppm`, `pdftotext`, `pdfimages`
+- **Tesseract** (optional): `brew install tesseract` — OCR for scanned PDFs
+- **qpdf** (optional): `brew install qpdf` — PDF merging, splitting, encryption, repair
 
 ## Next Steps
 

@@ -1,3 +1,8 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["pdf2image"]
+# ///
+
 import os
 import sys
 

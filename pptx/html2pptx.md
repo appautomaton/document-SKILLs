@@ -184,7 +184,7 @@ h1 { color: #2d3748; font-size: 32pt; }
 
 ### Dependencies
 
-These libraries have been globally installed and are available to use:
+These packages are in `package.json` in this directory. Run `npm install` once to set up `node_modules/`:
 - `pptxgenjs`
 - `playwright`
 - `sharp`
@@ -255,6 +255,48 @@ slide.addChart(pptx.charts.BAR, data, placeholders[0]);
 // Find by ID
 const chartArea = placeholders.find(p => p.id === 'chart-area');
 slide.addChart(pptx.charts.LINE, data, chartArea);
+```
+
+### Rasterizing Placeholder Content (High-Fidelity)
+
+When your placeholder content is **browser-rendered** (Chart.js, Plotly, Mermaid, custom SVG/canvas), `html2pptx` will still only return coordinates. To preserve the exact look, screenshot the placeholder region and inject it as an image:
+
+```javascript
+const path = require('path');
+const pptxgen = require('pptxgenjs');
+const { chromium } = require('playwright');
+const html2pptx = require('./html2pptx');
+
+const pptx = new pptxgen();
+pptx.layout = 'LAYOUT_16x9';
+
+const htmlFile = 'slide.html';
+const { slide, placeholders } = await html2pptx(htmlFile, pptx);
+
+const launchOptions = {};
+if (process.platform === 'darwin' && !process.env.PLAYWRIGHT_BROWSERS_PATH) launchOptions.channel = 'chrome';
+const browser = await chromium.launch(launchOptions);
+const context = await browser.newContext({ deviceScaleFactor: 2 });
+const page = await context.newPage();
+await page.setViewportSize({ width: 960, height: 540 });
+await page.goto(`file://${path.resolve(htmlFile)}`, { waitUntil: 'load' });
+
+// If the slide uses webfonts / Font Awesome / charts, you may need to wait for them to finish rendering.
+await page.evaluate(async () => {
+  if (document.fonts && document.fonts.status !== 'loaded') await document.fonts.ready;
+});
+await page.waitForTimeout(250);
+
+for (const ph of placeholders) {
+  const buf = await page.locator(`#${ph.id}`).screenshot({ type: 'jpeg', quality: 90 });
+  slide.addImage({
+    data: `image/jpeg;base64,${buf.toString('base64')}`,
+    x: ph.x, y: ph.y, w: ph.w, h: ph.h,
+  });
+}
+
+await browser.close();
+await pptx.writeFile({ fileName: 'deck.pptx' });
 ```
 
 ### Complete Example

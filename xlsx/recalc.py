@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["openpyxl"]
+# ///
 """
 Excel Formula Recalculation Script
 Recalculates all formulas in an Excel file using LibreOffice
@@ -157,7 +160,7 @@ def recalc(filename, timeout=30):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python recalc.py <excel_file> [timeout_seconds]")
+        print("Usage: uv run python recalc.py <excel_file> [timeout_seconds]")
         print("\nRecalculates all formulas in an Excel file using LibreOffice")
         print("\nReturns JSON with error details:")
         print("  - status: 'success' or 'errors_found'")

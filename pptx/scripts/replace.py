@@ -1,8 +1,11 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["python-pptx", "Pillow"]
+# ///
 """Apply text replacements to PowerPoint presentation.
 
 Usage:
-    python replace.py <input.pptx> <replacements.json> <output.pptx>
+    uv run python replace.py <input.pptx> <replacements.json> <output.pptx>
 
 The replacements JSON should have the structure output by inventory.py.
 ALL text shapes identified by inventory.py will have their text cleared
@@ -236,7 +239,7 @@ def apply_replacements(pptx_file: str, json_file: str, output_file: str):
             print(f"  - {error}")
         print("\nPlease check the inventory and update your replacement JSON.")
         print(
-            "You can regenerate the inventory with: python inventory.py <input.pptx> <output.json>"
+            "You can regenerate the inventory with: uv run python inventory.py <input.pptx> <output.json>"
         )
         raise ValueError(f"Found {len(errors)} validation error(s)")
 

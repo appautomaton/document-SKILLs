@@ -1,9 +1,12 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["python-pptx", "six"]
+# ///
 """
 Rearrange PowerPoint slides based on a sequence of indices.
 
 Usage:
-    python rearrange.py template.pptx output.pptx 0,34,34,50,52
+    uv run python rearrange.py template.pptx output.pptx 0,34,34,50,52
 
 This will create output.pptx using slides from template.pptx in the specified order.
 Slides can be repeated (e.g., 34 appears twice).
@@ -25,10 +28,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python rearrange.py template.pptx output.pptx 0,34,34,50,52
+  uv run python rearrange.py template.pptx output.pptx 0,34,34,50,52
     Creates output.pptx using slides 0, 34 (twice), 50, and 52 from template.pptx
 
-  python rearrange.py template.pptx output.pptx 5,3,1,2,4
+  uv run python rearrange.py template.pptx output.pptx 5,3,1,2,4
     Creates output.pptx with slides reordered as specified
 
 Note: Slide indices are 0-based (first slide is 0, second is 1, etc.)

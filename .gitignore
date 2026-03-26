@@ -1,28 +1,20 @@
-# Virtual environments
-venv/
-.venv/
-env/
-.env/
+node_modules/
+.DS_Store
+outputs/
 
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.pyo
-*.pyd
-.Python
+.venv/
+venv/
 
-# Distribution / packaging
+# Build artifacts
 dist/
 build/
 *.egg-info/
-*.egg
 
-# pytest cache
+# Caches
 .pytest_cache/
-
-# mypy cache
 .mypy_cache/
-
-# ruff cache
 .ruff_cache/
