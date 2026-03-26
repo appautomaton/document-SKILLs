@@ -42,7 +42,7 @@ Each skill that needs Node packages has its own `package.json` and `node_modules
 
 | Skill | Packages |
 |-------|----------|
-| pptx | `pptxgenjs`, `playwright`, `sharp`, `react`, `react-dom`, `react-icons` |
+| pptx | `pptxgenjs`, `playwright` (launches Chromium for HTML→image rendering), `sharp`, `react`, `react-dom`, `react-icons` |
 | docx | `docx` |
 
 pdf and xlsx do not use Node packages.
