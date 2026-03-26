@@ -73,5 +73,3 @@ Each skill has:
 - `scripts/` — Python scripts the agent calls via `uv run`
 - `package.json` — Node.js dependencies (docx, pptx only)
 - `ooxml/` — XML pack/unpack/validate tooling (docx, pptx only)
-
-All output files go to the user's working directory. Never write artifacts inside the skill folder.
