@@ -56,22 +56,6 @@ cd docx && npm install
 cd ../pptx && npm install
 ```
 
-## Output Organization
-
-> [!TIP]
-> Add `outputs/` to your `.gitignore` to keep generated files out of version control.
-
-```
-outputs/
-└── <document-name>/
-    ├── final.pptx
-    ├── inventory.json
-    ├── replacements.json
-    ├── unpacked/
-    ├── thumbnails/
-    └── images/
-```
-
 ## Source
 
 Based on [Anthropic's official skills](https://github.com/anthropics/skills).

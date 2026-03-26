@@ -56,22 +56,6 @@ cd docx && npm install
 cd ../pptx && npm install
 ```
 
-## 输出组织
-
-> [!TIP]
-> 建议把 `outputs/` 加入 `.gitignore`，避免将生成文件纳入版本控制。
-
-```
-outputs/
-└── <document-name>/
-    ├── final.pptx
-    ├── inventory.json
-    ├── replacements.json
-    ├── unpacked/
-    ├── thumbnails/
-    └── images/
-```
-
 ## 来源
 
 基于 [Anthropic 官方 skills](https://github.com/anthropics/skills)。
