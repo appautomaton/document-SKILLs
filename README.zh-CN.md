@@ -56,6 +56,10 @@ cd docx && npm install
 cd ../pptx && npm install
 ```
 
+## 许可证
+
+MIT 许可证 — 详见 [LICENSE](LICENSE)。
+
 ## 来源
 
 基于 [Anthropic 官方 skills](https://github.com/anthropics/skills)。

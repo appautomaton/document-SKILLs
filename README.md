@@ -56,6 +56,10 @@ cd docx && npm install
 cd ../pptx && npm install
 ```
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
 ## Source
 
 Based on [Anthropic's official skills](https://github.com/anthropics/skills).
