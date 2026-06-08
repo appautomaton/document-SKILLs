@@ -42,7 +42,7 @@ done
 
 ```bash
 # macOS
-brew install pandoc poppler tesseract qpdf
+brew install pandoc poppler tesseract qpdf coreutils
 brew install --cask libreoffice
 
 # Linux

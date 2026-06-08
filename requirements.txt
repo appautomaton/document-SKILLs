@@ -14,6 +14,7 @@ pdfplumber
 reportlab
 pytesseract
 pdf2image
+pypdfium2
 pillow
 
 # Excel/data analysis

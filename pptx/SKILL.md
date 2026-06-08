@@ -1,7 +1,6 @@
 ---
 name: pptx
 description: "Presentation creation, editing, and analysis. When Claude needs to work with presentations (.pptx files) for: (1) Creating new presentations, (2) Modifying or editing content, (3) Working with layouts, (4) Adding comments or speaker notes, or any other presentation tasks"
-metadata:
 ---
 
 # PPTX creation, editing, and analysis
@@ -17,7 +16,7 @@ If you just need to read the text contents of a presentation, you should convert
 
 ```bash
 # Convert document to markdown
-uv run python -m markitdown path-to-file.pptx
+uv run --with 'markitdown[pptx]' python -m markitdown path-to-file.pptx
 ```
 
 ### Raw XML access
@@ -26,7 +25,7 @@ You need raw XML access for: comments, speaker notes, slide layouts, animations,
 #### Unpacking a file
 `uv run python ooxml/scripts/unpack.py <office_file> <output_dir>`
 
-**Note**: The unpack.py script is located at `skills/pptx/ooxml/scripts/unpack.py` relative to the project root. If the script doesn't exist at this path, use `find . -name "unpack.py"` to locate it.
+**Note**: Run this from the pptx skill directory, where the script is at `ooxml/scripts/unpack.py`. If it isn't found there, use `find . -name "unpack.py"` to locate it.
 
 #### Key file structures
 * `ppt/presentation.xml` - Main presentation metadata and slide references
@@ -173,7 +172,7 @@ When creating a new PowerPoint presentation from scratch, use the **html2pptx** 
 When edit slides in an existing PowerPoint presentation, you need to work with the raw Office Open XML (OOXML) format. This involves unpacking the .pptx file, editing the XML content, and repacking it.
 
 ### Workflow
-1. **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~500 lines) completely from start to finish.  **NEVER set any range limits when reading this file.**  Read the full file content for detailed guidance on OOXML structure and editing workflows before any presentation editing.
+1. **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~425 lines) completely from start to finish.  **NEVER set any range limits when reading this file.**  Read the full file content for detailed guidance on OOXML structure and editing workflows before any presentation editing.
 2. Unpack the presentation: `uv run python ooxml/scripts/unpack.py <office_file> <output_dir>`
 3. Edit the XML files (primarily `ppt/slides/slide{N}.xml` and related files)
 4. **CRITICAL**: Validate immediately after each edit and fix any validation errors before proceeding: `uv run python ooxml/scripts/validate.py <dir> --original <file>`
@@ -185,7 +184,7 @@ When you need to create a presentation that follows an existing template's desig
 
 ### Workflow
 1. **Extract template text AND create visual thumbnail grid**:
-   * Extract text: `uv run python -m markitdown template.pptx > template-content.md`
+   * Extract text: `uv run --with 'markitdown[pptx]' python -m markitdown template.pptx > template-content.md`
    * Read `template-content.md`: Read the entire file to understand the contents of the template presentation. **NEVER set any range limits when reading this file.**
    * Create thumbnail grids: `uv run python scripts/thumbnail.py template.pptx`
    * See [Creating Thumbnail Grids](#creating-thumbnail-grids) section for more details

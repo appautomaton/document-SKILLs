@@ -7,7 +7,7 @@ Skills for creating, reading, and manipulating PDF, PPTX, XLSX, and DOCX files.
 ## Python
 
 - Always use `uv run` to execute Python scripts in these skills.
-- All scripts declare their dependencies via PEP 723 inline metadata — `uv run` resolves them automatically. No manual `pip install` needed.
+- All directly-run scripts declare their dependencies via PEP 723 inline metadata — `uv run` resolves them automatically. (Library modules imported by those scripts inherit the runner's environment and need no header of their own.) No manual `pip install` needed.
 - When writing a new script, add a PEP 723 header:
   ```python
   # /// script

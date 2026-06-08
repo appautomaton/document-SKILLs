@@ -275,20 +275,24 @@ Use the Document class from `scripts/document.py` for all tracked changes and co
 
 **Find the docx skill root** (directory containing `scripts/` and `ooxml/`):
 ```bash
-# Search for document.py to locate the skill root
-# Note: /mnt/skills is used here as an example; check your context for the actual location
-find /mnt/skills -name "document.py" -path "*/docx/scripts/*" 2>/dev/null | head -1
-# Example output: /mnt/skills/docx/scripts/document.py
-# Skill root is: /mnt/skills/docx
+# Locate the skill root by finding document.py wherever this skill is installed
+# (e.g. ~/.claude/skills/docx or ~/.codex/skills/docx):
+find ~ -name "document.py" -path "*/docx/scripts/*" 2>/dev/null | head -1
+# Example output: ~/.claude/skills/docx/scripts/document.py
+# Skill root is the parent of scripts/, e.g. ~/.claude/skills/docx
 ```
 
-**Run your script with PYTHONPATH** set to the docx skill root:
+**Run your script with `uv run`** (never bare `python`), with `PYTHONPATH` set to the docx skill root:
 ```bash
-PYTHONPATH=/mnt/skills/docx python your_script.py
+PYTHONPATH=<docx-skill-root> uv run your_script.py
 ```
 
-**In your script**, import from the skill root:
+**In your script**, declare dependencies with a PEP 723 header (so `uv run` resolves them) and import from the skill root:
 ```python
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["lxml", "defusedxml"]
+# ///
 from scripts.document import Document, DocxXMLEditor
 
 # Basic initialization (automatically creates temp copy and sets up infrastructure)
