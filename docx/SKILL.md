@@ -42,7 +42,7 @@ pandoc --track-changes=all path-to-file.docx -o output.md
 You need raw XML access for: comments, complex formatting, document structure, embedded media, and metadata. For any of these features, you'll need to unpack a document and read its raw XML contents.
 
 #### Unpacking a file
-`uv run python ooxml/scripts/unpack.py <office_file> <output_directory>`
+`uv run ooxml/scripts/unpack.py <office_file> <output_directory>`
 
 #### Key file structures
 * `word/document.xml` - Main document contents
@@ -65,9 +65,9 @@ When editing an existing Word document, use the **Document library** (a Python l
 
 ### Workflow
 1. **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for the Document library API and XML patterns for directly editing document files.
-2. Unpack the document: `uv run python ooxml/scripts/unpack.py <office_file> <output_directory>`
+2. Unpack the document: `uv run ooxml/scripts/unpack.py <office_file> <output_directory>`
 3. Create and run a Python script using the Document library (see "Document Library" section in ooxml.md)
-4. Pack the final document: `uv run python ooxml/scripts/pack.py <input_directory> <office_file>`
+4. Pack the final document: `uv run ooxml/scripts/pack.py <input_directory> <office_file>`
 
 The Document library provides both high-level methods for common operations and direct DOM access for complex scenarios.
 
@@ -113,7 +113,7 @@ Example - Changing "30 days" to "60 days" in a sentence:
 
 3. **Read documentation and unpack**:
    - **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Pay special attention to the "Document Library" and "Tracked Change Patterns" sections.
-   - **Unpack the document**: `uv run python ooxml/scripts/unpack.py <file.docx> <dir>`
+   - **Unpack the document**: `uv run ooxml/scripts/unpack.py <file.docx> <dir>`
    - **Note the suggested RSID**: The unpack script will suggest an RSID to use for your tracked changes. Copy this RSID for use in step 4b.
 
 4. **Implement changes in batches**: Group changes logically (by section, by type, or by proximity) and implement them together in a single script. This approach:
@@ -136,7 +136,7 @@ Example - Changing "30 days" to "60 days" in a sentence:
 
 5. **Pack the document**: After all batches are complete, convert the unpacked directory back to .docx:
    ```bash
-   uv run python ooxml/scripts/pack.py unpacked reviewed-document.docx
+   uv run ooxml/scripts/pack.py unpacked reviewed-document.docx
    ```
 
 6. **Final verification**: Do a comprehensive check of the complete document:
