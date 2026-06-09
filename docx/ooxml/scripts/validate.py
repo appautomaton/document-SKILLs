@@ -6,7 +6,7 @@
 Command line tool to validate Office document XML files against XSD schemas and tracked changes.
 
 Usage:
-    uv run python validate.py <dir> --original <original_file>
+    uv run validate.py <dir> --original <original_file>
 """
 
 import argparse

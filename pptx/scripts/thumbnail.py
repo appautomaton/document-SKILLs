@@ -22,16 +22,16 @@ Grid limits by column count:
 - 6 cols: max 42 slides per grid (6×7)
 
 Usage:
-    uv run python thumbnail.py input.pptx [output_prefix] [--cols N] [--outline-placeholders]
+    uv run thumbnail.py input.pptx [output_prefix] [--cols N] [--outline-placeholders]
 
 Examples:
-    uv run python thumbnail.py presentation.pptx
+    uv run thumbnail.py presentation.pptx
     # Creates: thumbnails.jpg (using default prefix)
     # Outputs:
     #   Created 1 grid(s):
     #     - thumbnails.jpg
 
-    uv run python thumbnail.py large-deck.pptx grid --cols 4
+    uv run thumbnail.py large-deck.pptx grid --cols 4
     # Creates: grid-1.jpg, grid-2.jpg, grid-3.jpg
     # Outputs:
     #   Created 3 grid(s):
@@ -39,7 +39,7 @@ Examples:
     #     - grid-2.jpg
     #     - grid-3.jpg
 
-    uv run python thumbnail.py template.pptx analysis --outline-placeholders
+    uv run thumbnail.py template.pptx analysis --outline-placeholders
     # Creates thumbnail grids with red outlines around text placeholders
 """
 

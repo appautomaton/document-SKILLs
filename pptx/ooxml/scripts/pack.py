@@ -6,7 +6,7 @@
 Tool to pack a directory into a .docx, .pptx, or .xlsx file with XML formatting undone.
 
 Example usage:
-    uv run python pack.py <input_directory> <office_file> [--force]
+    uv run pack.py <input_directory> <office_file> [--force]
 """
 
 import argparse

@@ -22,7 +22,7 @@ Main Functions:
     save_inventory: Save extracted data to JSON
 
 Usage:
-    uv run python inventory.py input.pptx output.json
+    uv run inventory.py input.pptx output.json
 """
 
 import argparse
@@ -57,10 +57,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  uv run python inventory.py presentation.pptx inventory.json
+  uv run inventory.py presentation.pptx inventory.json
     Extracts text inventory with correct absolute positions for grouped shapes
 
-  uv run python inventory.py presentation.pptx inventory.json --issues-only
+  uv run inventory.py presentation.pptx inventory.json --issues-only
     Extracts only text shapes that have overflow or overlap issues
 
 The output JSON includes:
