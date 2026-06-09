@@ -609,6 +609,62 @@ def _generate_rsid() -> str:
     return "".join(random.choices("0123456789ABCDEF", k=8))
 
 
+# Child element order of CT_Settings per ECMA-376 / ISO-IEC 29500
+# (ooxml/schemas/ISO-IEC29500-4_2016/wml.xsd, CT_Settings sequence). Used to
+# insert new settings.xml elements at a schema-valid position regardless of
+# which optional settings the source document already contains.
+_CT_SETTINGS_ORDER = (
+    "writeProtection", "view", "zoom", "removePersonalInformation", "removeDateAndTime",
+    "doNotDisplayPageBoundaries", "displayBackgroundShape", "printPostScriptOverText",
+    "printFractionalCharacterWidth", "printFormsData", "embedTrueTypeFonts", "embedSystemFonts",
+    "saveSubsetFonts", "saveFormsData", "mirrorMargins", "alignBordersAndEdges",
+    "bordersDoNotSurroundHeader", "bordersDoNotSurroundFooter", "gutterAtTop", "hideSpellingErrors",
+    "hideGrammaticalErrors", "activeWritingStyle", "proofState", "formsDesign", "attachedTemplate",
+    "linkStyles", "stylePaneFormatFilter", "stylePaneSortMethod", "documentType", "mailMerge",
+    "revisionView", "trackRevisions", "doNotTrackMoves", "doNotTrackFormatting", "documentProtection",
+    "autoFormatOverride", "styleLockTheme", "styleLockQFSet", "defaultTabStop", "autoHyphenation",
+    "consecutiveHyphenLimit", "hyphenationZone", "doNotHyphenateCaps", "showEnvelope", "summaryLength",
+    "clickAndTypeStyle", "defaultTableStyle", "evenAndOddHeaders", "bookFoldRevPrinting",
+    "bookFoldPrinting", "bookFoldPrintingSheets", "drawingGridHorizontalSpacing",
+    "drawingGridVerticalSpacing", "displayHorizontalDrawingGridEvery", "displayVerticalDrawingGridEvery",
+    "doNotUseMarginsForDrawingGridOrigin", "drawingGridHorizontalOrigin", "drawingGridVerticalOrigin",
+    "doNotShadeFormData", "noPunctuationKerning", "characterSpacingControl", "printTwoOnOne",
+    "strictFirstAndLastChars", "noLineBreaksAfter", "noLineBreaksBefore", "savePreviewPicture",
+    "doNotValidateAgainstSchema", "saveInvalidXml", "ignoreMixedContent", "alwaysShowPlaceholderText",
+    "doNotDemarcateInvalidXml", "saveXmlDataOnly", "useXSLTWhenSaving", "saveThroughXslt",
+    "showXMLTags", "alwaysMergeEmptyNamespace", "updateFields", "hdrShapeDefaults", "footnotePr",
+    "endnotePr", "compat", "docVars", "rsids", "attachedSchema", "themeFontLang", "clrSchemeMapping",
+    "doNotIncludeSubdocsInStats", "doNotAutoCompressPictures", "forceUpgrade", "captions",
+    "readModeInkLockDown", "smartTagType", "shapeDefaults", "doNotEmbedSmartTags", "decimalSymbol",
+    "listSeparator",
+)
+
+
+def _insert_settings_element(editor, root, local_name, xml):
+    """Insert `xml` into <w:settings> at the schema-valid position for `local_name`.
+
+    Inserts before the first existing child that must follow `local_name` per
+    _CT_SETTINGS_ORDER; if none exists, appends. Unknown/extension elements are
+    skipped when scanning. Caller ensures the element does not already exist.
+    """
+    try:
+        target_idx = _CT_SETTINGS_ORDER.index(local_name)
+    except ValueError:
+        target_idx = len(_CT_SETTINGS_ORDER)
+    for child in root.childNodes:
+        if child.nodeType != child.ELEMENT_NODE:
+            continue
+        child_local = child.tagName.split(":")[-1]
+        try:
+            child_idx = _CT_SETTINGS_ORDER.index(child_local)
+        except ValueError:
+            continue
+        if child_idx > target_idx:
+            editor.insert_before(child, xml)
+            return
+    editor.append_to(root, xml)
+
+
 class Document:
     """Manages comments in unpacked Word documents."""
 
@@ -990,67 +1046,33 @@ class Document:
 
         Args:
             path: Path to settings.xml
-            track_revisions: If True, adds trackRevisions element
+            track_revisions: If True, adds a <w:trackRevisions/> element
 
-        Places elements per OOXML schema order:
-        - trackRevisions: early (before defaultTabStop)
-        - rsids: late (after compat)
+        New elements are placed at their schema-valid position via
+        _insert_settings_element (CT_Settings child order), so the result
+        validates regardless of which optional settings the source file has.
         """
         editor = self["word/settings.xml"]
         root = editor.get_node(tag="w:settings")
         prefix = root.tagName.split(":")[0] if ":" in root.tagName else "w"
 
         # Conditionally add trackRevisions if requested
-        if track_revisions:
-            track_revisions_exists = any(
-                elem.tagName == f"{prefix}:trackRevisions"
-                for elem in editor.dom.getElementsByTagName(f"{prefix}:trackRevisions")
+        if track_revisions and not editor.dom.getElementsByTagName(
+            f"{prefix}:trackRevisions"
+        ):
+            _insert_settings_element(
+                editor, root, "trackRevisions", f"<{prefix}:trackRevisions/>"
             )
 
-            if not track_revisions_exists:
-                track_rev_xml = f"<{prefix}:trackRevisions/>"
-                # Try to insert before documentProtection, defaultTabStop, or at start
-                inserted = False
-                for tag in [f"{prefix}:documentProtection", f"{prefix}:defaultTabStop"]:
-                    elements = editor.dom.getElementsByTagName(tag)
-                    if elements:
-                        editor.insert_before(elements[0], track_rev_xml)
-                        inserted = True
-                        break
-                if not inserted:
-                    # Insert as first child of settings
-                    if root.firstChild:
-                        editor.insert_before(root.firstChild, track_rev_xml)
-                    else:
-                        editor.append_to(root, track_rev_xml)
-
-        # Always check if rsids section exists
+        # Ensure an rsids section exists and contains this session's RSID
         rsids_elements = editor.dom.getElementsByTagName(f"{prefix}:rsids")
 
         if not rsids_elements:
-            # Add new rsids section
             rsids_xml = f'''<{prefix}:rsids>
   <{prefix}:rsidRoot {prefix}:val="{self.rsid}"/>
   <{prefix}:rsid {prefix}:val="{self.rsid}"/>
 </{prefix}:rsids>'''
-
-            # Try to insert after compat, before clrSchemeMapping, or before closing tag
-            inserted = False
-            compat_elements = editor.dom.getElementsByTagName(f"{prefix}:compat")
-            if compat_elements:
-                editor.insert_after(compat_elements[0], rsids_xml)
-                inserted = True
-
-            if not inserted:
-                clr_elements = editor.dom.getElementsByTagName(
-                    f"{prefix}:clrSchemeMapping"
-                )
-                if clr_elements:
-                    editor.insert_before(clr_elements[0], rsids_xml)
-                    inserted = True
-
-            if not inserted:
-                editor.append_to(root, rsids_xml)
+            _insert_settings_element(editor, root, "rsids", rsids_xml)
         else:
             # Check if this rsid already exists
             rsids_elem = rsids_elements[0]
