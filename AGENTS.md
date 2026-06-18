@@ -29,8 +29,9 @@ Skills for creating, reading, and manipulating PDF, PPTX, XLSX, and DOCX files.
 | pytesseract | `pytesseract` | pdf | OCR wrapper for Tesseract |
 | pypdfium2 | `pypdfium2` | pdf | PDF rendering using PDFium engine |
 | python-pptx | `python-pptx` | pptx | PowerPoint file manipulation |
-| openpyxl | `openpyxl` | xlsx | Excel file manipulation |
-| pandas | `pandas` | xlsx | Data analysis, table operations |
+| markitdown | `markitdown[pptx]` | pptx | Extract PPTX text as Markdown |
+| openpyxl | `openpyxl` | pdf, xlsx | Excel file manipulation |
+| pandas | `pandas` | pdf, xlsx | Data analysis, table operations |
 | matplotlib | `matplotlib` | xlsx | Chart and visualization creation |
 | lxml | `lxml` | pptx, docx | XML processing and XSD schema validation |
 | defusedxml | `defusedxml` | pptx, docx | Secure XML parsing (XXE protection) |
