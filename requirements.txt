@@ -15,7 +15,7 @@ reportlab
 pytesseract
 pdf2image
 pypdfium2
-pillow
+Pillow
 
 # Excel/data analysis
 pandas
