@@ -1,0 +1,25 @@
+{
+  "name": "appautomaton-skills",
+  "owner": {
+    "name": "BP",
+    "email": "brian@bhoneycutt.com"
+  },
+  "metadata": {
+    "description": "Document processing skills for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "document-skills",
+      "description": "Create, edit, and analyze PDF, Word, PowerPoint, and Excel files",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./pdf",
+        "./docx",
+        "./pptx",
+        "./xlsx"
+      ]
+    }
+  ]
+}

@@ -6,6 +6,19 @@ A collection of Claude Code / Codex skills for document manipulation — PDF ext
 
 ## Quick start
 
+### Claude Code, as a plugin
+
+Two commands inside Claude Code, no cloning:
+
+```
+/plugin marketplace add appautomaton/document-SKILLs
+/plugin install document-skills@appautomaton-skills
+```
+
+Skills are then invoked as `document-skills:pdf`, `document-skills:docx`, and so on.
+
+### Any agent, via symlinks
+
 > [!TIP]
 > Clone this repo anywhere you keep your skills, then symlink each skill into your agent's skills directory.
 
