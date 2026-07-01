@@ -48,11 +48,11 @@ class BaseSchemaValidator:
         "ppt": "ISO-IEC29500-4_2016/pml.xsd",  # PowerPoint presentations
         "xl": "ISO-IEC29500-4_2016/sml.xsd",  # Excel spreadsheets
         # Common file types
-        "[Content_Types].xml": "ecma/fouth-edition/opc-contentTypes.xsd",
+        "[Content_Types].xml": "ecma/fourth-edition/opc-contentTypes.xsd",
         "app.xml": "ISO-IEC29500-4_2016/shared-documentPropertiesExtended.xsd",
-        "core.xml": "ecma/fouth-edition/opc-coreProperties.xsd",
+        "core.xml": "ecma/fourth-edition/opc-coreProperties.xsd",
         "custom.xml": "ISO-IEC29500-4_2016/shared-documentPropertiesCustom.xsd",
-        ".rels": "ecma/fouth-edition/opc-relationships.xsd",
+        ".rels": "ecma/fourth-edition/opc-relationships.xsd",
         # Word-specific files
         "people.xml": "microsoft/wml-2012.xsd",
         "commentsIds.xml": "microsoft/wml-cid-2016.xsd",
