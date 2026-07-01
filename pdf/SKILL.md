@@ -9,6 +9,14 @@ description: Comprehensive PDF manipulation toolkit for extracting text and tabl
 
 This guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see reference.md. If you need to fill out a PDF form, read forms.md and follow its instructions.
 
+## Prerequisites
+
+Python dependencies are resolved automatically by `uv run` — every script declares them in its PEP 723 header. Some workflows also need system tools:
+
+- **poppler** (`brew install poppler` / `apt-get install poppler-utils`) — provides `pdftoppm` and `pdftotext`; required by the form-filling workflow, which converts PDF pages to images via pdf2image
+- **tesseract** (`brew install tesseract tesseract-lang`) — only for OCR on scanned documents (see [ocr.md](ocr.md))
+- **qpdf** (`brew install qpdf`) — only for the command-line recipes in the qpdf section below
+
 ## Quick Start
 
 ```python

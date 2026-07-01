@@ -9,6 +9,13 @@ description: "Presentation creation, editing, and analysis. When Claude needs to
 
 A user may ask you to create, edit, or analyze the contents of a .pptx file. A .pptx file is essentially a ZIP archive containing XML files and other resources that you can read or edit. You have different tools and workflows available for different tasks.
 
+## Prerequisites
+
+Python dependencies are resolved automatically by `uv run` — scripts declare them in PEP 723 headers. The workflows below also rely on:
+
+- **Node.js packages** — if `node_modules/` is missing, run `npm install` in this skill directory once. This installs `pptxgenjs` and `playwright`, which drives Chromium/Chrome for HTML rendering (on macOS it uses system Chrome; elsewhere run `npx playwright install chromium` once if no browser is present). It also installs `sharp`, `react`, `react-dom`, and `react-icons` — html2pptx.js does not use these itself; they are provided for scripts you write during the html2pptx workflow (icon and gradient rasterization, see [html2pptx.md](html2pptx.md))
+- **LibreOffice** (`brew install --cask libreoffice`) and **poppler** (`brew install poppler`) — converting presentations to PDF/images for thumbnails and visual validation (`soffice`, `pdftoppm`)
+
 ## Reading and analyzing content
 
 ### Text extraction

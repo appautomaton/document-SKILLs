@@ -9,6 +9,14 @@ description: "Comprehensive document creation, editing, and analysis with suppor
 
 A user may ask you to create, edit, or analyze the contents of a .docx file. A .docx file is essentially a ZIP archive containing XML files and other resources that you can read or edit. You have different tools and workflows available for different tasks.
 
+## Prerequisites
+
+Python dependencies are resolved automatically by `uv run` — scripts declare them in PEP 723 headers. The workflows below also rely on:
+
+- **pandoc** (`brew install pandoc`) — text extraction to markdown
+- **LibreOffice** (`brew install --cask libreoffice`) and **poppler** (`brew install poppler`) — converting documents to images (`soffice`, `pdftoppm`)
+- **Node.js packages** — creating new documents uses the `docx` npm package; if `node_modules/` is missing, run `npm install` in this skill directory once
+
 ## Workflow Decision Tree
 
 ### Reading/Analyzing Content

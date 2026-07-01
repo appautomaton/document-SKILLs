@@ -67,7 +67,11 @@ A user may ask you to create, edit, or analyze the contents of an .xlsx file. Yo
 
 ## Important Requirements
 
-**LibreOffice Required for Formula Recalculation**: You can assume LibreOffice is installed for recalculating formula values using the `recalc.py` script. The script automatically configures LibreOffice on first run
+**LibreOffice is required for formula recalculation**: the `recalc.py` script drives LibreOffice (`soffice`) headlessly and configures it automatically on first run by writing a small recalculation macro into the LibreOffice user profile. Install with `brew install --cask libreoffice` or `apt-get install libreoffice`.
+
+**Optional, macOS only — coreutils** (`brew install coreutils`): provides `gtimeout` so recalculation can be time-limited; without it, `recalc.py` warns on stderr and runs without a timeout.
+
+**Python packages** (openpyxl, pandas, matplotlib) resolve automatically via `uv run` — declare them in each script's PEP 723 header.
 
 ## Reading and analyzing data
 
