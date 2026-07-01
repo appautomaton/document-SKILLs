@@ -49,6 +49,8 @@ pdf and xlsx do not use Node packages.
 
 ## System Tools (`brew` or `apt-get`)
 
+On macOS, `brew bundle` at the repo root installs everything below. The Brewfile keeps optional tools commented out and skips uv and node when they are already on the PATH.
+
 ### Required
 
 | Package | Install | Provides | Used by |

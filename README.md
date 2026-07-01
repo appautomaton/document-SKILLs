@@ -41,9 +41,9 @@ done
 System tools:
 
 ```bash
-# macOS
-brew install pandoc poppler tesseract qpdf coreutils
-brew install --cask libreoffice
+# macOS: one command via the repo Brewfile.
+# Installs uv and node only if missing, optional tools are commented in the file.
+brew bundle
 
 # Linux
 sudo apt-get install -y pandoc poppler-utils tesseract-ocr qpdf libreoffice
