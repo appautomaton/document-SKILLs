@@ -1,5 +1,6 @@
 # System tools for the document skills.
 # macOS: run `brew bundle` from this directory. Verify anytime with `brew bundle check`.
+# Cautious mode: `brew bundle --no-upgrade` installs what is missing without upgrading anything you already have.
 # Linux: see the System Tools table in AGENTS.md for apt-get equivalents.
 
 # Homebrew filters PATH while it runs, so a plain `command -v` would miss tools
