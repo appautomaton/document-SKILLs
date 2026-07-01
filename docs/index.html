@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Skills for Claude Code and Codex</title>
+<meta name="description" content="Four self-contained skills that let coding agents fill PDF forms, redline Word documents, build PowerPoint decks, and recalculate Excel formulas.">
+<meta property="og:title" content="Document Skills for Claude Code and Codex">
+<meta property="og:description" content="Your agent can edit Office documents. PDF, Word, PowerPoint, and Excel skills, installable in two commands.">
+<meta property="og:url" content="https://appautomaton.github.io/document-SKILLs/">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 2h14l6 6v22H6z' fill='%23FCFCFA' stroke='%231C1B18' stroke-width='2'/%3E%3Cpath d='M20 2v6h6' fill='none' stroke='%231C1B18' stroke-width='2'/%3E%3Cpath d='M10 16h12M10 21h12' stroke='%23B42318' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FCFCFA;
+    --ink: #1C1B18;
+    --ink-soft: #55534E;
+    --rule: #E4E2DC;
+    --mark: #B42318;
+    --chip-bg: #F4F3EF;
+    --pdf: #B30B00;
+    --docx: #185ABD;
+    --pptx: #C43E1C;
+    --xlsx: #107C41;
+    --serif: "Source Serif 4", Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #15171A;
+      --ink: #E9E7E2;
+      --ink-soft: #A5A29B;
+      --rule: #2C2F33;
+      --mark: #E5675A;
+      --chip-bg: #1E2125;
+      --pdf: #F0655A;
+      --docx: #6FA3EC;
+      --pptx: #E98A6B;
+      --xlsx: #4FBE82;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--mark); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+  a:focus-visible, pre:focus-visible {
+    outline: 2px solid var(--mark);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+  main { max-width: 76rem; margin: 0 auto; padding: 0 1.5rem 4rem; }
+
+  /* Each row is document column + margin-comment rail, like a page under review */
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 44rem) 15rem;
+    justify-content: center;
+    column-gap: 4rem;
+  }
+  .note {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    border-left: 2px solid var(--mark);
+    padding: 0.35rem 0 0.35rem 0.75rem;
+    margin-top: 0.5rem;
+    align-self: start;
+  }
+  .note b { color: var(--ink); font-weight: 500; }
+  @media (max-width: 68rem) {
+    .row { grid-template-columns: minmax(0, 44rem); }
+    .note { margin: 0.75rem 0 0; max-width: 30rem; }
+  }
+
+  header.masthead {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    padding: 1.4rem 0 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    max-width: 63rem;
+    margin: 0 auto;
+  }
+  header.masthead a { color: var(--ink-soft); }
+
+  .row.hero { padding-top: 4.5rem; }
+  h1 {
+    font-size: clamp(2.1rem, 5.4vw, 3.4rem);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    margin: 0 0 1.4rem;
+  }
+  /* Tracked-change marks: strike draws first, insertion underlines after */
+  del, ins {
+    text-decoration: none;
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+  }
+  del {
+    color: var(--ink-soft);
+    background-image: linear-gradient(to top, transparent 46%, var(--mark) 46%, var(--mark) 54%, transparent 54%);
+  }
+  ins {
+    color: var(--mark);
+    background-image: linear-gradient(to top, var(--mark) 0, var(--mark) 7%, transparent 7%);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    del, ins { animation: draw 0.45s ease-out backwards; }
+    del { animation-delay: 0.5s; }
+    ins { animation-delay: 1.0s; }
+    @keyframes draw {
+      from { background-size: 0% 100%; }
+      to   { background-size: 100% 100%; }
+    }
+    ins { color: var(--mark); transition: none; }
+  }
+  .lede { font-size: 1.2rem; color: var(--ink-soft); max-width: 38rem; margin: 0 0 2.2rem; }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.86rem;
+    line-height: 1.7;
+    background: var(--chip-bg);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    margin: 0;
+  }
+  pre .p { color: var(--ink-soft); user-select: none; }
+  .caption {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-soft);
+    margin: 0.6rem 0 0;
+  }
+
+  h2 {
+    font-size: 0.8rem;
+    font-family: var(--mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem;
+    margin: 4rem 0 1.6rem;
+  }
+
+  ul.skills { list-style: none; margin: 0; padding: 0; }
+  ul.skills li {
+    display: grid;
+    grid-template-columns: 5.4rem 1fr;
+    gap: 1.25rem;
+    padding: 1.05rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  ul.skills li:last-child { border-bottom: none; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 500;
+    align-self: start;
+    margin-top: 0.2rem;
+    white-space: nowrap;
+  }
+  .chip::before {
+    content: "";
+    display: inline-block;
+    width: 0.55em; height: 0.55em;
+    border-radius: 1px;
+    margin-right: 0.5em;
+    background: var(--c, var(--ink));
+  }
+  ul.skills p { margin: 0; }
+  ul.skills p b { font-weight: 600; }
+
+  ol.setup { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  ol.setup li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2.2rem 1fr;
+    gap: 1rem;
+    padding: 0.9rem 0;
+  }
+  ol.setup li::before {
+    content: counter(step) ".";
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    color: var(--mark);
+    padding-top: 0.15rem;
+  }
+  ol.setup p { margin: 0 0 0.6rem; }
+  ol.setup pre { margin-top: 0.4rem; }
+
+  .prose p { margin: 0 0 1.1rem; max-width: 40rem; }
+  .prose code, li code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--chip-bg);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.08em 0.35em;
+    white-space: nowrap;
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    margin-top: 4.5rem;
+    padding: 1.4rem 0 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.6rem;
+  }
+  footer a { color: var(--ink-soft); }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <span>document-SKILLs</span>
+  <a href="https://github.com/appautomaton/document-SKILLs">github.com/appautomaton/document-SKILLs</a>
+</header>
+<main>
+
+  <div class="row hero">
+    <div>
+      <h1>Your agent <del>can&rsquo;t</del> <ins>can</ins> edit Office&nbsp;documents.</h1>
+      <p class="lede">Four self-contained skills that teach Claude&nbsp;Code and Codex to fill PDF forms, redline Word documents, build PowerPoint decks, and recalculate Excel formulas.</p>
+      <pre tabindex="0"><span class="p">&gt; </span>/plugin marketplace add appautomaton/document-SKILLs
+<span class="p">&gt; </span>/plugin install document-skills@appautomaton-skills</pre>
+      <p class="caption">Claude Code, two commands. Codex and other agents: clone and symlink.</p>
+    </div>
+    <aside class="note"><b>tracked changes</b><br>the docx skill produces real redlines, the kind that survive review in Word</aside>
+  </div>
+
+  <div class="row">
+    <div>
+      <h2>The skills</h2>
+      <ul class="skills">
+        <li>
+          <span class="chip" style="--c: var(--pdf)">.pdf</span>
+          <p><b>Read, build, and fill.</b> Extract text and tables, merge and split, create from scratch, OCR scanned pages, and fill forms two ways: native form fields, or drawn annotations validated against a rendered image.</p>
+        </li>
+        <li>
+          <span class="chip" style="--c: var(--docx)">.docx</span>
+          <p><b>Write and redline.</b> Create documents from JavaScript, edit the raw OOXML, add comments, and produce genuine tracked changes for legal and academic review.</p>
+        </li>
+        <li>
+          <span class="chip" style="--c: var(--pptx)">.pptx</span>
+          <p><b>Design and rearrange.</b> Build decks from HTML with pixel-accurate positioning, reorder and edit existing slides, and render thumbnails so the agent can check its own work.</p>
+        </li>
+        <li>
+          <span class="chip" style="--c: var(--xlsx)">.xlsx</span>
+          <p><b>Model and recalculate.</b> Create and edit spreadsheets while preserving formulas, then recalculate through headless LibreOffice and get back every <code>#REF!</code> and <code>#DIV/0!</code> by cell address.</p>
+        </li>
+      </ul>
+    </div>
+    <aside class="note"><b>self-contained</b><br>each skill folder carries its scripts, reference docs, and the ECMA-376 schemas it validates against</aside>
+  </div>
+
+  <div class="row">
+    <div>
+      <h2>Setup</h2>
+      <ol class="setup">
+        <li>
+          <div>
+            <p>Install the system tools. One command on macOS, and it respects what you already have: uv and node are skipped when they are on your PATH.</p>
+            <pre tabindex="0"><span class="p">$ </span>brew bundle <span class="p"># poppler, pandoc, LibreOffice</span></pre>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p>Install the skills. As a Claude Code plugin with the two commands above, or symlinked into any agent&rsquo;s skills directory:</p>
+            <pre tabindex="0"><span class="p">$ </span>git clone https://github.com/appautomaton/document-SKILLs.git
+<span class="p">$ </span>ln -s "$(pwd)/document-SKILLs/pdf" ~/.codex/skills/pdf</pre>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p>That&rsquo;s it. Ask your agent to fill in a form, redline a contract, or audit a financial model. Python dependencies resolve on first run, no pip and no virtualenvs.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+    <aside class="note"><b>verified</b><br>the plugin install and the Brewfile are both tested on clean, isolated environments before every release</aside>
+  </div>
+
+  <div class="row">
+    <div>
+      <h2>How it&rsquo;s built</h2>
+      <div class="prose">
+        <p>Every script declares its dependencies in a <a href="https://peps.python.org/pep-0723/">PEP&nbsp;723</a> header and runs under <code>uv run</code>. There is nothing to install into, nothing to activate, and nothing to break six months later.</p>
+        <p>Each skill folder is the unit of distribution. Its prerequisites are written in the SKILL.md the agent actually reads, so a copied folder works the same on the next machine.</p>
+        <p>Office file edits are validated against the ECMA-376 and ISO/IEC&nbsp;29500 schemas that define the formats, before anything is handed back to you.</p>
+      </div>
+    </div>
+    <aside class="note"><b>provenance</b><br>a maintained fork of Anthropic&rsquo;s official document skills, MIT licensed</aside>
+  </div>
+
+  <div class="row">
+    <footer>
+      <span>MIT license</span>
+      <a href="https://github.com/anthropics/skills">based on Anthropic&rsquo;s skills</a>
+      <a href="https://github.com/appautomaton">appautomaton</a>
+      <a href="https://appcubic.com">an appcubic project</a>
+    </footer>
+  </div>
+
+</main>
+</body>
+</html>
