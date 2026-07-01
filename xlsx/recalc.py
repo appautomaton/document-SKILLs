@@ -12,6 +12,7 @@ import sys
 import subprocess
 import os
 import platform
+import shutil
 from pathlib import Path
 from openpyxl import load_workbook
 
@@ -66,7 +67,11 @@ def recalc(filename, timeout=30):
     """
     if not Path(filename).exists():
         return {'error': f'File {filename} does not exist'}
-    
+
+    if shutil.which('soffice') is None:
+        return {'error': "LibreOffice ('soffice') not found on PATH. Install it "
+                         "(`brew install --cask libreoffice` or `apt-get install libreoffice`) and retry."}
+
     abs_path = str(Path(filename).absolute())
     
     if not setup_libreoffice_macro():
@@ -87,7 +92,8 @@ def recalc(filename, timeout=30):
                 subprocess.run(['gtimeout', '--version'], capture_output=True, timeout=1, check=False)
                 timeout_cmd = 'gtimeout'
             except (FileNotFoundError, subprocess.TimeoutExpired):
-                pass
+                print("Warning: 'gtimeout' not found (`brew install coreutils`); "
+                      "running LibreOffice without a timeout", file=sys.stderr)
         
         if timeout_cmd:
             cmd = [timeout_cmd, str(timeout)] + cmd
@@ -96,10 +102,9 @@ def recalc(filename, timeout=30):
     
     if result.returncode != 0 and result.returncode != 124:  # 124 is timeout exit code
         error_msg = result.stderr or 'Unknown error during recalculation'
-        if 'Module1' in error_msg or 'RecalculateAndSave' not in error_msg:
-            return {'error': 'LibreOffice macro not configured properly'}
-        else:
-            return {'error': error_msg}
+        if 'Module1' in error_msg or 'RecalculateAndSave' in error_msg:
+            return {'error': f'LibreOffice macro not configured properly: {error_msg}'}
+        return {'error': error_msg}
     
     # Check for Excel errors in the recalculated file - scan ALL cells
     try:

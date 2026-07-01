@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["python-pptx", "six"]
+# dependencies = ["python-pptx"]
 # ///
 """
 Rearrange PowerPoint slides based on a sequence of indices.
@@ -18,7 +18,6 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 
-import six
 from pptx import Presentation
 
 
@@ -84,7 +83,7 @@ def duplicate_slide(pres, index):
 
     # Collect all image and media relationships from the source slide
     image_rels = {}
-    for rel_id, rel in six.iteritems(source.part.rels):
+    for rel_id, rel in source.part.rels.items():
         if "image" in rel.reltype or "media" in rel.reltype:
             image_rels[rel_id] = rel
 

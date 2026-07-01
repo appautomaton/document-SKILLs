@@ -35,7 +35,6 @@ Skills for creating, reading, and manipulating PDF, PPTX, XLSX, and DOCX files.
 | matplotlib | `matplotlib` | xlsx | Chart and visualization creation |
 | lxml | `lxml` | pptx, docx | XML processing and XSD schema validation |
 | defusedxml | `defusedxml` | pptx, docx | Secure XML parsing (XXE protection) |
-| six | `six` | pptx | Python 2/3 compatibility |
 
 ## Node.js
 
@@ -71,6 +70,6 @@ pdf and xlsx do not use Node packages.
 
 Each skill has:
 - `SKILL.md` — the prompt/instructions for the skill
-- `scripts/` — Python scripts the agent calls via `uv run`
+- `scripts/` — Python scripts the agent calls via `uv run` (xlsx instead ships a single `recalc.py` at the skill root)
 - `package.json` — Node.js dependencies (docx, pptx only)
 - `ooxml/` — XML pack/unpack/validate tooling (docx, pptx only)

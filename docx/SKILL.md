@@ -56,7 +56,7 @@ When creating a new Word document from scratch, use **docx-js**, which allows yo
 
 ### Workflow
 1. **MANDATORY - READ ENTIRE FILE**: Read [`docx-js.md`](docx-js.md) (~350 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for detailed syntax, critical formatting rules, and best practices before proceeding with document creation.
-2. Create a JavaScript/TypeScript file using Document, Paragraph, TextRun components (You can assume all dependencies are installed, but if not, refer to the dependencies section below)
+2. Create a JavaScript/TypeScript file using Document, Paragraph, TextRun components (if `node_modules/` is missing, run `npm install` in the docx skill directory — see the Setup section of [`docx-js.md`](docx-js.md))
 3. Export as .docx using Packer.toBuffer()
 
 ## Editing an existing Word document
