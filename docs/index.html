@@ -5,10 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Document Skills for Claude Code and Codex</title>
 <meta name="description" content="Four self-contained skills that let coding agents fill PDF forms, redline Word documents, build PowerPoint decks, and recalculate Excel formulas.">
+<!-- The custom domain is what serves this page; appautomaton.github.io answers
+     every request for it with a redirect here. Naming the redirect as the page's
+     own address asks a crawler to resolve a contradiction, and sends every
+     link-preview scraper that reads og:url literally through an extra hop. -->
+<link rel="canonical" href="https://appautomaton.renocrypt.com/document-SKILLs/">
+
 <meta property="og:title" content="Document Skills for Claude Code and Codex">
 <meta property="og:description" content="Your agent can edit Office documents. PDF, Word, PowerPoint, and Excel skills, installable in two commands.">
-<meta property="og:url" content="https://appautomaton.github.io/document-SKILLs/">
+<meta property="og:url" content="https://appautomaton.renocrypt.com/document-SKILLs/">
 <meta property="og:type" content="website">
+
+<!-- The @id and isPartOf match the nodes the App Automaton catalog publishes,
+     so the two graphs describe one entity rather than two that resemble
+     each other. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "@id": "https://appautomaton.renocrypt.com/document-SKILLs/#project",
+  "name": "document-SKILLs",
+  "description": "Four self-contained skills that let coding agents fill PDF forms, redline Word documents, build PowerPoint decks, and recalculate Excel formulas. Runs on uv with PEP 723, no virtualenv.",
+  "url": "https://appautomaton.renocrypt.com/document-SKILLs/",
+  "codeRepository": "https://github.com/appautomaton/document-SKILLs",
+  "programmingLanguage": "Python",
+  "license": "https://opensource.org/licenses/MIT",
+  "isPartOf": { "@id": "https://appautomaton.renocrypt.com/#website" },
+  "author": {
+    "@type": "Organization",
+    "name": "App Automaton",
+    "url": "https://appautomaton.renocrypt.com/"
+  }
+}
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 2h14l6 6v22H6z' fill='%23FCFCFA' stroke='%231C1B18' stroke-width='2'/%3E%3Cpath d='M20 2v6h6' fill='none' stroke='%231C1B18' stroke-width='2'/%3E%3Cpath d='M10 16h12M10 21h12' stroke='%23B42318' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -320,6 +349,9 @@
     <footer>
       <span>MIT license</span>
       <a href="https://github.com/anthropics/skills">based on Anthropic&rsquo;s skills</a>
+      <!-- This page is one of a set served from the same host. The link back is
+           what makes them a site rather than a row of leaves. -->
+      <a href="https://appautomaton.renocrypt.com/">App Automaton</a>
       <a href="https://github.com/appautomaton">appautomaton</a>
       <a href="https://appcubic.com">an appcubic project</a>
     </footer>
