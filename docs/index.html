@@ -99,6 +99,7 @@
     justify-content: center;
     column-gap: 4rem;
   }
+  .row > div, ol.setup li > div { min-width: 0; }
   .note {
     font-family: var(--mono);
     font-size: 0.72rem;
@@ -121,12 +122,13 @@
     color: var(--ink-soft);
     padding: 1.4rem 0 0;
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     gap: 1rem;
     max-width: 63rem;
     margin: 0 auto;
   }
-  header.masthead a { color: var(--ink-soft); }
+  header.masthead a { color: var(--ink-soft); overflow-wrap: anywhere; }
 
   .row.hero { padding-top: 4.5rem; }
   h1 {
@@ -277,7 +279,7 @@
       <p class="lede">Four self-contained skills that teach Claude&nbsp;Code and Codex to fill PDF forms, redline Word documents, build PowerPoint decks, and recalculate Excel formulas.</p>
       <pre tabindex="0"><span class="p">&gt; </span>/plugin marketplace add appautomaton/document-SKILLs
 <span class="p">&gt; </span>/plugin install document-skills@appautomaton-skills</pre>
-      <p class="caption">Claude Code, two commands. Codex and other agents: clone and symlink.</p>
+      <p class="caption">Claude Code plugin installation. System tools and per-skill dependencies are still required. For a local checkout, follow the setup below.</p>
     </div>
     <aside class="note"><b>tracked changes</b><br>the docx skill produces real redlines, the kind that survive review in Word</aside>
   </div>
@@ -309,29 +311,59 @@
 
   <div class="row">
     <div>
-      <h2>Setup</h2>
+      <h2 id="setup">Set up a local checkout</h2>
+      <p>This walkthrough uses macOS with Git and Homebrew installed. For Linux system packages, see the <a href="https://github.com/appautomaton/document-SKILLs#dependencies">repository dependencies</a>.</p>
       <ol class="setup">
         <li>
           <div>
-            <p>Install the system tools. One command on macOS, and it respects what you already have: uv and node are skipped when they are on your PATH.</p>
-            <pre tabindex="0"><span class="p">$ </span>brew bundle <span class="p"># poppler, pandoc, LibreOffice</span></pre>
+            <p>Clone the repository and enter it. The remaining commands run from this directory, which contains the Brewfile and all four skills.</p>
+            <pre tabindex="0">git clone https://github.com/appautomaton/document-SKILLs.git
+cd document-SKILLs</pre>
           </div>
         </li>
         <li>
           <div>
-            <p>Install the skills. As a Claude Code plugin with the two commands above, or symlinked into any agent&rsquo;s skills directory:</p>
-            <pre tabindex="0"><span class="p">$ </span>git clone https://github.com/appautomaton/document-SKILLs.git
-<span class="p">$ </span>ln -s "$(pwd)/document-SKILLs/pdf" ~/.codex/skills/pdf</pre>
+            <p>Install the system tools. The Brewfile provides Poppler, Pandoc, and LibreOffice. It skips uv and Node when they are already on your PATH.</p>
+            <pre tabindex="0">brew bundle --no-upgrade</pre>
+            <p>For scanned-PDF OCR, also install <code>tesseract</code> with Homebrew. HTML-to-slide rendering on macOS uses Google Chrome.</p>
           </div>
         </li>
         <li>
           <div>
-            <p>That&rsquo;s it. Ask your agent to fill in a form, redline a contract, or audit a financial model. Python dependencies resolve on first run, no pip and no virtualenvs.</p>
+            <p>Install the Node packages used by Word and PowerPoint workflows. PDF and spreadsheet workflows do not need these packages.</p>
+            <pre tabindex="0">npm --prefix docx install
+npm --prefix pptx install</pre>
+            <p>Python dependencies resolve when each script runs through <code>uv run</code>.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p>Link the skills into your agent&rsquo;s skills directory. This example uses Codex. For Claude Code, set <code>skills_dir</code> to <code>"$HOME/.claude/skills"</code> instead. Existing entries are reported and kept.</p>
+            <pre tabindex="0">skills_dir="$HOME/.codex/skills"
+mkdir -p "$skills_dir"
+for skill in docx pdf pptx xlsx; do
+  skill_target="$skills_dir/$skill"
+  if [ -e "$skill_target" ] || [ -L "$skill_target" ]; then
+    printf 'Already exists: %s\n' "$skill_target"
+  else
+    ln -s "$PWD/$skill" "$skill_target"
+  fi
+done</pre>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p>Check the dependencies from the repository root, then ask your agent to use a skill with one of your documents.</p>
+            <pre tabindex="0">brew bundle check
+npm --prefix docx ls --depth=0
+npm --prefix pptx ls --depth=0</pre>
+            <p>For example: &ldquo;Use the docx skill to replace this paragraph with the revised text and return a Word file with tracked changes.&rdquo;</p>
           </div>
         </li>
       </ol>
+      <p>If you use the plugin installation above, follow the prerequisites in its installed <a href="https://github.com/appautomaton/document-SKILLs/blob/master/docx/SKILL.md">docx</a> and <a href="https://github.com/appautomaton/document-SKILLs/blob/master/pptx/SKILL.md">pptx</a> skills. Their Node packages must be installed in the plugin&rsquo;s skill directories.</p>
     </div>
-    <aside class="note"><b>verified</b><br>the plugin install and the Brewfile are both tested on clean, isolated environments before every release</aside>
+    <aside class="note"><b>prerequisites</b><br>each skill&rsquo;s SKILL.md lists its system tools and package requirements</aside>
   </div>
 
   <div class="row">
