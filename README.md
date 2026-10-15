@@ -15,7 +15,7 @@ Two commands inside Claude Code, no cloning:
 /plugin install document-skills@appautomaton-skills
 ```
 
-Skills are then invoked as `document-skills:pdf`, `document-skills:docx`, and so on.
+Skills are then invoked as `document-skills:pdf`, `document-skills:docx`, and so on. The system tools under [Dependencies](#dependencies) are still required; the docx and pptx skills install their Node packages the first time they need them.
 
 ### Any agent, via symlinks
 
@@ -41,10 +41,12 @@ done
 
 | Skill | What it does |
 |---|---|
-| [docx](docx/) | Create, edit, and analyze Word documents — tracked changes, comments, formatting |
-| [pdf](pdf/) | Extract text/tables, fill forms, merge/split, OCR scanned pages |
-| [pptx](pptx/) | Edit existing presentations — reorder slides, replace text, thumbnails |
-| [xlsx](xlsx/) | Create/edit spreadsheets — formulas, formatting, data analysis |
+| [docx](docx/) | Create, redline, comment on, and read Word documents — real tracked changes, checked so no edit goes untracked |
+| [pdf](pdf/) | Extract text/tables, fill fillable and flat forms, merge/split/stamp, OCR scanned pages |
+| [pptx](pptx/) | Build decks from HTML as native slides, fill templates, duplicate and reorder slides, edit speaker notes |
+| [xlsx](xlsx/) | Create/edit workbooks with live formulas, then recalculate and get every error, circular reference, and broken function by cell |
+
+Every workflow checks its own output before handing it back: workbooks are recalculated and scanned for errors, Word and PowerPoint files are validated against the OOXML schemas, and documents, PDFs and decks are rendered so the agent can look at them.
 
 ## Dependencies
 
@@ -59,7 +61,8 @@ System tools:
 brew bundle
 
 # Linux
-sudo apt-get install -y pandoc poppler-utils tesseract-ocr qpdf libreoffice
+sudo apt-get install -y pandoc poppler-utils libreoffice
+sudo apt-get install -y tesseract-ocr   # optional, OCR of scanned PDFs
 ```
 
 Node.js packages (docx and pptx skills only):
@@ -69,13 +72,13 @@ cd docx && npm install
 cd ../pptx && npm install
 ```
 
+## Development
+
+`tests/` runs every script through `uv run`, the way an agent does. See [AGENTS.md](AGENTS.md#tests).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-## Source
-
-Based on [Anthropic's official skills](https://github.com/anthropics/skills).
 
 ---
 

@@ -42,6 +42,8 @@ class BaseSchemaValidator:
     ELEMENT_RELATIONSHIP_TYPES = {}
 
     # Unified schema mappings for all Office document types
+    # docProps/core.xml is left out: its schema imports the Dublin Core schemas
+    # from the network, so it can never resolve offline.
     SCHEMA_MAPPINGS = {
         # Document type specific schemas
         "word": "ISO-IEC29500-4_2016/wml.xsd",  # Word documents
@@ -50,7 +52,6 @@ class BaseSchemaValidator:
         # Common file types
         "[Content_Types].xml": "ecma/fourth-edition/opc-contentTypes.xsd",
         "app.xml": "ISO-IEC29500-4_2016/shared-documentPropertiesExtended.xsd",
-        "core.xml": "ecma/fourth-edition/opc-coreProperties.xsd",
         "custom.xml": "ISO-IEC29500-4_2016/shared-documentPropertiesCustom.xsd",
         ".rels": "ecma/fourth-edition/opc-relationships.xsd",
         # Word-specific files
@@ -84,6 +85,16 @@ class BaseSchemaValidator:
     # Folders where we should clean ignorable namespaces
     MAIN_CONTENT_FOLDERS = {"word", "ppt", "xl"}
 
+    # Subfolders whose parts use the main schema of their format
+    CONTENT_SUBFOLDERS = {
+        "ppt": {
+            "slides", "slideLayouts", "slideMasters", "notesSlides",
+            "notesMasters", "handoutMasters", "tags",
+        },
+        "word": {"glossary"},
+        "xl": {"worksheets", "chartsheets", "dialogsheets"},
+    }
+
     # All allowed OOXML namespaces (superset of all document types)
     OOXML_NAMESPACES = {
         "http://schemas.openxmlformats.org/officeDocument/2006/math",
@@ -105,7 +116,7 @@ class BaseSchemaValidator:
 
     def __init__(self, unpacked_dir, original_file, verbose=False):
         self.unpacked_dir = Path(unpacked_dir).resolve()
-        self.original_file = Path(original_file)
+        self.original_file = Path(original_file) if original_file else None
         self.verbose = verbose
 
         # Set schemas directory
@@ -324,11 +335,12 @@ class BaseSchemaValidator:
                     namespaces={"ns": self.PACKAGE_RELATIONSHIPS_NAMESPACE},
                 ):
                     target = rel.get("Target")
-                    if target and not target.startswith(
-                        ("http", "mailto:")
-                    ):  # Skip external URLs
+                    if target and rel.get("TargetMode") != "External":
                         # Resolve the target path relative to the .rels file location
-                        if rels_file.name == ".rels":
+                        if target.startswith("/"):
+                            # Absolute part names are relative to the package root
+                            target_path = self.unpacked_dir / target.lstrip("/")
+                        elif rels_file.name == ".rels":
                             # Root .rels file - targets are relative to unpacked_dir
                             target_path = self.unpacked_dir / target
                         else:
@@ -738,7 +750,7 @@ class BaseSchemaValidator:
                 print("\nPASSED - No new XSD validation errors introduced")
             return True
 
-    def _get_schema_path(self, xml_file):
+    def _get_schema_path(self, xml_file, base_path=None):
         """Determine the appropriate schema path for an XML file."""
         # Check exact filename match
         if xml_file.name in self.SCHEMA_MAPPINGS:
@@ -756,9 +768,16 @@ class BaseSchemaValidator:
         if "theme/" in str(xml_file) and xml_file.name.startswith("theme"):
             return self.schemas_dir / self.SCHEMA_MAPPINGS["theme"]
 
-        # Check if file is in a main content folder and use appropriate schema
-        if xml_file.parent.name in self.MAIN_CONTENT_FOLDERS:
-            return self.schemas_dir / self.SCHEMA_MAPPINGS[xml_file.parent.name]
+        # Main content parts, including those in subfolders such as ppt/slides
+        try:
+            base = Path(base_path or self.unpacked_dir).resolve()
+            parts = Path(xml_file).resolve().relative_to(base).parts
+        except ValueError:
+            return None
+        if len(parts) == 2 and parts[0] in self.MAIN_CONTENT_FOLDERS:
+            return self.schemas_dir / self.SCHEMA_MAPPINGS[parts[0]]
+        if len(parts) == 3 and parts[1] in self.CONTENT_SUBFOLDERS.get(parts[0], ()):
+            return self.schemas_dir / self.SCHEMA_MAPPINGS[parts[0]]
 
         return None
 
@@ -785,6 +804,7 @@ class BaseSchemaValidator:
 
         # Remove elements not in allowed namespaces
         self._remove_ignorable_elements(xml_copy)
+        self._remove_emptied_extensions(xml_copy)
 
         return lxml.etree.ElementTree(xml_copy)
 
@@ -812,6 +832,22 @@ class BaseSchemaValidator:
         for elem in elements_to_remove:
             root.remove(elem)
 
+    def _remove_emptied_extensions(self, root):
+        """Drop extension elements left empty once their non-OOXML content is removed.
+
+        An <ext uri="..."> must have a child, so one emptied by the cleanup above
+        would fail validation for a reason the document does not have. Size
+        elements also named ext (<a:ext cx= cy=/>) carry no uri and are kept.
+        """
+        for elem in list(root.iter()):
+            if not isinstance(elem.tag, str) or len(elem):
+                continue
+            if (elem.tag.endswith("}ext") and "uri" in elem.attrib) or elem.tag.endswith("}extLst"):
+                parent = elem.getparent()
+                parent.remove(elem)
+                if parent.tag.endswith("}extLst") and not len(parent):
+                    parent.getparent().remove(parent)
+
     def _preprocess_for_mc_ignorable(self, xml_doc):
         """Preprocess XML to handle mc:Ignorable attribute properly."""
         # Remove mc:Ignorable attributes before validation
@@ -825,7 +861,7 @@ class BaseSchemaValidator:
 
     def _validate_single_file_xsd(self, xml_file, base_path):
         """Validate a single XML file against XSD schema. Returns (is_valid, errors_set)."""
-        schema_path = self._get_schema_path(xml_file)
+        schema_path = self._get_schema_path(xml_file, base_path)
         if not schema_path:
             return None, None  # Skip file
 
@@ -875,6 +911,9 @@ class BaseSchemaValidator:
         Returns:
             set: Set of error messages from the original file
         """
+        if self.original_file is None:
+            return set()
+
         import tempfile
         import zipfile
 

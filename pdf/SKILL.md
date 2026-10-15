@@ -1,301 +1,59 @@
 ---
 name: pdf
-description: Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.
+description: Read, create, fill, and transform PDF files. Covers extracting text and tables, OCR of scanned pages, filling fillable and flat forms, and flattening, merging, splitting, rotating, stamping and encrypting. Use when a task takes a .pdf as input or must produce one.
 ---
 
-# PDF Processing Guide
+# PDF files
 
-## Overview
+You already know pypdf, pdfplumber and reportlab. This skill adds what they don't give you: form-filling scripts that check their own input, a way to see pages as a reader will, and the PDF behaviours that silently put content in the wrong place.
 
-This guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see reference.md. If you need to fill out a PDF form, read forms.md and follow its instructions.
+## Running scripts
 
-## Prerequisites
+`<skill>` is the directory containing this file. Run bundled scripts by absolute path from the user's working directory, so relative paths to their files keep working:
 
-Python dependencies are resolved automatically by `uv run` — every script declares them in its PEP 723 header. Some workflows also need system tools:
-
-- **poppler** (`brew install poppler` / `apt-get install poppler-utils`) — provides `pdftoppm` and `pdftotext`; required by the form-filling workflow, which converts PDF pages to images via pdf2image
-- **tesseract** (`brew install tesseract tesseract-lang`) — only for OCR on scanned documents (see [ocr.md](ocr.md))
-- **qpdf** (`brew install qpdf`) — only for the command-line recipes in the qpdf section below
-
-## Quick Start
-
-```python
-from pypdf import PdfReader, PdfWriter
-
-# Read a PDF
-reader = PdfReader("document.pdf")
-print(f"Pages: {len(reader.pages)}")
-
-# Extract text
-text = ""
-for page in reader.pages:
-    text += page.extract_text()
-```
-
-## Python Libraries
-
-### pypdf - Basic Operations
-
-#### Merge PDFs
-```python
-from pypdf import PdfWriter, PdfReader
-
-writer = PdfWriter()
-for pdf_file in ["doc1.pdf", "doc2.pdf", "doc3.pdf"]:
-    reader = PdfReader(pdf_file)
-    for page in reader.pages:
-        writer.add_page(page)
-
-with open("merged.pdf", "wb") as output:
-    writer.write(output)
-```
-
-#### Split PDF
-```python
-reader = PdfReader("input.pdf")
-for i, page in enumerate(reader.pages):
-    writer = PdfWriter()
-    writer.add_page(page)
-    with open(f"page_{i+1}.pdf", "wb") as output:
-        writer.write(output)
-```
-
-#### Extract Metadata
-```python
-reader = PdfReader("document.pdf")
-meta = reader.metadata
-print(f"Title: {meta.title}")
-print(f"Author: {meta.author}")
-print(f"Subject: {meta.subject}")
-print(f"Creator: {meta.creator}")
-```
-
-#### Rotate Pages
-```python
-reader = PdfReader("input.pdf")
-writer = PdfWriter()
-
-page = reader.pages[0]
-page.rotate(90)  # Rotate 90 degrees clockwise
-writer.add_page(page)
-
-with open("rotated.pdf", "wb") as output:
-    writer.write(output)
-```
-
-### pdfplumber - Text and Table Extraction
-
-#### Extract Text with Layout
-```python
-import pdfplumber
-
-with pdfplumber.open("document.pdf") as pdf:
-    for page in pdf.pages:
-        text = page.extract_text()
-        print(text)
-```
-
-#### Extract Tables
-```python
-with pdfplumber.open("document.pdf") as pdf:
-    for i, page in enumerate(pdf.pages):
-        tables = page.extract_tables()
-        for j, table in enumerate(tables):
-            print(f"Table {j+1} on page {i+1}:")
-            for row in table:
-                print(row)
-```
-
-#### Advanced Table Extraction
-```python
-import pandas as pd
-
-with pdfplumber.open("document.pdf") as pdf:
-    all_tables = []
-    for page in pdf.pages:
-        tables = page.extract_tables()
-        for table in tables:
-            if table:  # Check if table is not empty
-                df = pd.DataFrame(table[1:], columns=table[0])
-                all_tables.append(df)
-
-# Combine all tables
-if all_tables:
-    combined_df = pd.concat(all_tables, ignore_index=True)
-    combined_df.to_excel("extracted_tables.xlsx", index=False)
-```
-
-### reportlab - Create PDFs
-
-#### Basic PDF Creation
-```python
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-
-c = canvas.Canvas("hello.pdf", pagesize=letter)
-width, height = letter
-
-# Add text
-c.drawString(100, height - 100, "Hello World!")
-c.drawString(100, height - 120, "This is a PDF created with reportlab")
-
-# Add a line
-c.line(100, height - 140, 400, height - 140)
-
-# Save
-c.save()
-```
-
-#### Create PDF with Multiple Pages
-```python
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet
-
-doc = SimpleDocTemplate("report.pdf", pagesize=letter)
-styles = getSampleStyleSheet()
-story = []
-
-# Add content
-title = Paragraph("Report Title", styles['Title'])
-story.append(title)
-story.append(Spacer(1, 12))
-
-body = Paragraph("This is the body of the report. " * 20, styles['Normal'])
-story.append(body)
-story.append(PageBreak())
-
-# Page 2
-story.append(Paragraph("Page 2", styles['Heading1']))
-story.append(Paragraph("Content for page 2", styles['Normal']))
-
-# Build PDF
-doc.build(story)
-```
-
-## Command-Line Tools
-
-### pdftotext (poppler-utils)
 ```bash
-# Extract text
-pdftotext input.pdf output.txt
-
-# Extract text preserving layout
-pdftotext -layout input.pdf output.txt
-
-# Extract specific pages
-pdftotext -f 1 -l 5 input.pdf output.txt  # Pages 1-5
+uv run <skill>/scripts/convert_pdf_to_images.py report.pdf pages
 ```
 
-### qpdf
+Run Python you write with its dependencies declared, either `uv run --with pypdf script.py` or a PEP 723 header. Rendering pages needs poppler (`pdftoppm`); OCR also needs Tesseract.
+
+## Choosing a tool
+
+| Task | Use |
+|---|---|
+| Fill a form, fillable or flat | [forms.md](forms.md), always. It has scripts for every step. |
+| Text | pdfplumber, or `pdftotext -layout` from the command line. Text missing from pages that visibly have it means a scan: see [ocr.md](ocr.md). |
+| Tables | pdfplumber: see [tables.md](tables.md) |
+| New PDFs | reportlab: Platypus for flowing documents, canvas for exact placement |
+| Merge, split, rotate, crop, stamp, encrypt | pypdf: see [reference.md](reference.md) for the calls that keep bookmarks, links and orientation intact |
+| See what a page looks like | `scripts/convert_pdf_to_images.py` |
+
+## Checking the output
+
+Whenever you create or change a PDF, render the pages you touched and look at them before delivering. Check that the text is present and readable, nothing is clipped or overlapping, and every stamp or value is where it belongs:
+
 ```bash
-# Merge PDFs
-qpdf --empty --pages file1.pdf file2.pdf -- merged.pdf
-
-# Split pages
-qpdf input.pdf --pages . 1-5 -- pages1-5.pdf
-qpdf input.pdf --pages . 6-10 -- pages6-10.pdf
-
-# Rotate pages
-qpdf input.pdf output.pdf --rotate=+90:1  # Rotate page 1 by 90 degrees
-
-# Remove password
-qpdf --password=mypassword --decrypt encrypted.pdf decrypted.pdf
+uv run <skill>/scripts/convert_pdf_to_images.py out.pdf check --pages 1-3
 ```
 
-### pdftk (if available)
-```bash
-# Merge
-pdftk file1.pdf file2.pdf cat output merged.pdf
+## Pitfalls that fail silently
 
-# Split
-pdftk input.pdf burst
+- **Two coordinate systems.** PDF coordinates start at the bottom-left of the page box, in points. pdfplumber and page images start at the top-left. The page box need not start at (0, 0), so read `page.cropbox.left` and `.bottom`.
+- **Rotated pages.** `/Rotate` turns a page only for display; content and form fields keep unrotated coordinates. Anything placed with a plain scale and y-flip lands in the wrong spot. Convert boxes with `scripts/pdf_coords.py`, and call `page.transfer_rotation_to_content()` before stamping.
+- **Non-Latin text in new PDFs.** reportlab's built-in fonts draw Chinese, Cyrillic and similar scripts as black boxes. Register and embed a TrueType font; see [reference.md](reference.md#fonts-for-new-pdfs).
+- **Merging.** `PdfWriter.append()` keeps bookmarks and links, while copying pages with `add_page()` drops them. Merged forms with matching field names become one field, so filling one fills both.
+- **AES encryption** needs `uv run --with 'pypdf[crypto]'`. Without it, pypdf raises `DependencyError` on open or on encrypt.
 
-# Rotate
-pdftk input.pdf rotate 1east output rotated.pdf
-```
+## Scripts
 
-## Common Tasks
-
-### Extract Text from Scanned PDFs
-```python
-# Dependencies declared via PEP 723 in each script; resolved automatically by uv run
-import pytesseract
-from pdf2image import convert_from_path
-
-# Convert PDF to images
-images = convert_from_path('scanned.pdf')
-
-# OCR each page
-text = ""
-for i, image in enumerate(images):
-    text += f"Page {i+1}:\n"
-    text += pytesseract.image_to_string(image)
-    text += "\n\n"
-
-print(text)
-```
-
-### Add Watermark
-```python
-from pypdf import PdfReader, PdfWriter
-
-# Create watermark (or load existing)
-watermark = PdfReader("watermark.pdf").pages[0]
-
-# Apply to all pages
-reader = PdfReader("document.pdf")
-writer = PdfWriter()
-
-for page in reader.pages:
-    page.merge_page(watermark)
-    writer.add_page(page)
-
-with open("watermarked.pdf", "wb") as output:
-    writer.write(output)
-```
-
-### Extract Images
-```bash
-# Using pdfimages (poppler-utils)
-pdfimages -j input.pdf output_prefix
-
-# This extracts all images as output_prefix-000.jpg, output_prefix-001.jpg, etc.
-```
-
-### Password Protection
-```python
-from pypdf import PdfReader, PdfWriter
-
-reader = PdfReader("input.pdf")
-writer = PdfWriter()
-
-for page in reader.pages:
-    writer.add_page(page)
-
-# Add password
-writer.encrypt("userpassword", "ownerpassword")
-
-with open("encrypted.pdf", "wb") as output:
-    writer.write(output)
-```
-
-## Quick Reference
-
-| Task | Best Tool | Command/Code |
-|------|-----------|--------------|
-| Merge PDFs | pypdf | `writer.add_page(page)` |
-| Split PDFs | pypdf | One page per file |
-| Extract text | pdfplumber | `page.extract_text()` |
-| Extract tables | pdfplumber | `page.extract_tables()` |
-| Create PDFs | reportlab | Canvas or Platypus |
-| Command line merge | qpdf | `qpdf --empty --pages ...` |
-| OCR scanned PDFs | pytesseract | Convert to image first |
-| Fill PDF forms | pypdf | See forms.md |
-
-## Next Steps
-
-- **Complex table extraction**: For multi-page tables, borderless tables, and detection tuning, see [tables.md](tables.md)
-- **Scanned PDF processing**: For OCR with image preprocessing, see [ocr.md](ocr.md)
-- **Form filling**: For fillable and non-fillable PDF forms, see [forms.md](forms.md)
-- **Advanced features**: For pypdfium2, JavaScript libraries (pdf-lib), and troubleshooting, see [reference.md](reference.md)
+| Script | Does |
+|---|---|
+| `check_fillable_fields.py <pdf>` | Says which form path in forms.md applies |
+| `extract_form_field_info.py <pdf> <out.json>` | Lists fillable fields, their pages, boxes and accepted values |
+| `fill_fillable_fields.py <pdf> <values.json> <out.pdf>` | Fills fields after checking every id, page and value |
+| `convert_pdf_to_images.py <pdf> <dir> [--pages] [--fields]` | Renders pages one at a time to PNG, optionally outlining each fillable field |
+| `check_bounding_boxes.py <fields.json> [pdf]` | Finds overlapping or too-short boxes before a flat form is filled |
+| `create_validation_image.py <page> <fields.json> <png> <out.png>` | Draws those boxes on a page image for checking by eye |
+| `fill_pdf_form_with_annotations.py <pdf> <fields.json> <out.pdf>` | Fills a flat form with text that renders identically everywhere |
+| `flatten_form.py <pdf> <out.pdf>` | Draws filled values into the page so they can't be edited |
+| `pdf_coords.py <pdf> <page> <WxH> --to-pdf/--to-image <box>` | Converts boxes between page-image pixels and PDF points |

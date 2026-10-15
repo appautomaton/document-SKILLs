@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["python-pptx", "Pillow"]
+# dependencies = ["python-pptx>=1.0", "Pillow>=10"]
 # ///
 """
 Extract structured text content from PowerPoint presentations.
@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from PIL import Image, ImageDraw, ImageFont
 from pptx import Presentation
 from pptx.enum.text import PP_ALIGN
+from pptx.oxml.ns import qn
 from pptx.shapes.base import BaseShape
 
 # Type aliases for cleaner signatures
@@ -135,6 +136,8 @@ class ShapeWithPosition:
     shape: BaseShape
     absolute_left: int  # in EMUs
     absolute_top: int  # in EMUs
+    absolute_width: Optional[int] = None  # in EMUs, after any group scaling
+    absolute_height: Optional[int] = None
 
 
 class ParagraphData:
@@ -394,6 +397,8 @@ class ShapeData:
         absolute_left: Optional[int] = None,
         absolute_top: Optional[int] = None,
         slide: Optional[Any] = None,
+        absolute_width: Optional[int] = None,
+        absolute_height: Optional[int] = None,
     ):
         """Initialize from a PowerPoint shape object.
 
@@ -441,20 +446,16 @@ class ShapeData:
 
         self.left: float = round(self.emu_to_inches(left_emu), 2)  # type: ignore
         self.top: float = round(self.emu_to_inches(top_emu), 2)  # type: ignore
-        self.width: float = round(
-            self.emu_to_inches(shape.width if hasattr(shape, "width") else 0),
-            2,  # type: ignore
-        )
-        self.height: float = round(
-            self.emu_to_inches(shape.height if hasattr(shape, "height") else 0),
-            2,  # type: ignore
-        )
+        width_emu = absolute_width if absolute_width is not None else (shape.width or 0)
+        height_emu = absolute_height if absolute_height is not None else (shape.height or 0)
+        self.width: float = round(self.emu_to_inches(width_emu), 2)
+        self.height: float = round(self.emu_to_inches(height_emu), 2)
 
         # Store EMU positions for overflow calculations
         self.left_emu = left_emu
         self.top_emu = top_emu
-        self.width_emu = shape.width if hasattr(shape, "width") else 0
-        self.height_emu = shape.height if hasattr(shape, "height") else 0
+        self.width_emu = width_emu
+        self.height_emu = height_emu
 
         # Calculate overflow status
         self.frame_overflow_bottom: Optional[float] = None
@@ -766,53 +767,52 @@ def is_valid_shape(shape: BaseShape) -> bool:
     return True
 
 
-def collect_shapes_with_absolute_positions(
-    shape: BaseShape, parent_left: int = 0, parent_top: int = 0
-) -> List[ShapeWithPosition]:
-    """Recursively collect all shapes with valid text, calculating absolute positions.
+# Maps a shape's own coordinates to slide coordinates: x -> x * sx + tx.
+IDENTITY = (1.0, 1.0, 0.0, 0.0)
 
-    For shapes within groups, their positions are relative to the group.
-    This function calculates the absolute position on the slide by accumulating
-    parent group offsets.
 
-    Args:
-        shape: The shape to process
-        parent_left: Accumulated left offset from parent groups (in EMUs)
-        parent_top: Accumulated top offset from parent groups (in EMUs)
+def group_transform(group: BaseShape, parent=IDENTITY):
+    """Compose `parent` with the mapping a group applies to its children.
 
-    Returns:
-        List of ShapeWithPosition objects with absolute positions
+    Children are positioned in the group's child space: <a:chOff>/<a:chExt>
+    is mapped onto the group's own <a:off>/<a:ext>. Usually the two coincide,
+    which is why children already carry slide coordinates.
     """
+    xfrm = group._element.grpSpPr.find(qn("a:xfrm"))  # type: ignore
+    if xfrm is None:
+        return parent
+    off, ext = xfrm.find(qn("a:off")), xfrm.find(qn("a:ext"))
+    ch_off, ch_ext = xfrm.find(qn("a:chOff")), xfrm.find(qn("a:chExt"))
+    if off is None or ext is None or ch_off is None or ch_ext is None:
+        return parent
+    ox, oy = int(off.get("x")), int(off.get("y"))
+    cx, cy = int(ch_off.get("x")), int(ch_off.get("y"))
+    kx = int(ext.get("cx")) / int(ch_ext.get("cx")) if int(ch_ext.get("cx")) else 1.0
+    ky = int(ext.get("cy")) / int(ch_ext.get("cy")) if int(ch_ext.get("cy")) else 1.0
+    psx, psy, ptx, pty = parent
+    return (psx * kx, psy * ky, psx * (ox - cx * kx) + ptx, psy * (oy - cy * ky) + pty)
+
+
+def collect_shapes_with_absolute_positions(
+    shape: BaseShape, transform=IDENTITY
+) -> List[ShapeWithPosition]:
+    """Recursively collect all shapes with valid text, with slide positions and sizes."""
     if hasattr(shape, "shapes"):  # GroupShape
+        inner = group_transform(shape, transform)
         result = []
-        # Get this group's position
-        group_left = shape.left if hasattr(shape, "left") else 0
-        group_top = shape.top if hasattr(shape, "top") else 0
-
-        # Calculate absolute position for this group
-        abs_group_left = parent_left + group_left
-        abs_group_top = parent_top + group_top
-
-        # Process children with accumulated offsets
         for child in shape.shapes:  # type: ignore
-            result.extend(
-                collect_shapes_with_absolute_positions(
-                    child, abs_group_left, abs_group_top
-                )
-            )
+            result.extend(collect_shapes_with_absolute_positions(child, inner))
         return result
 
-    # Regular shape - check if it has valid text
     if is_valid_shape(shape):
-        # Calculate absolute position
-        shape_left = shape.left if hasattr(shape, "left") else 0
-        shape_top = shape.top if hasattr(shape, "top") else 0
-
+        sx, sy, tx, ty = transform
         return [
             ShapeWithPosition(
                 shape=shape,
-                absolute_left=parent_left + shape_left,
-                absolute_top=parent_top + shape_top,
+                absolute_left=round((shape.left or 0) * sx + tx),
+                absolute_top=round((shape.top or 0) * sy + ty),
+                absolute_width=round((shape.width or 0) * sx),
+                absolute_height=round((shape.height or 0) * sy),
             )
         ]
 
@@ -949,6 +949,8 @@ def extract_text_inventory(
                 swp.absolute_left,
                 swp.absolute_top,
                 slide,
+                swp.absolute_width,
+                swp.absolute_height,
             )
             for swp in shapes_with_positions
         ]

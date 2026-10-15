@@ -1,15 +1,16 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["python-pptx", "Pillow"]
+# dependencies = ["python-pptx>=1.0", "Pillow>=10"]
 # ///
 """Apply text replacements to PowerPoint presentation.
 
 Usage:
     uv run replace.py <input.pptx> <replacements.json> <output.pptx>
 
-The replacements JSON should have the structure output by inventory.py.
-ALL text shapes identified by inventory.py will have their text cleared
-unless "paragraphs" is specified in the replacements for that shape.
+The replacements JSON has the structure inventory.py writes. On every slide
+listed in it, each text shape is cleared and then filled from its
+"paragraphs", so shapes left out end up empty. Slides not listed are left
+exactly as they are.
 """
 
 import json
@@ -24,6 +25,10 @@ from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.text import PP_ALIGN
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Pt
+
+
+# Children of <a:pPr> that the schema places after the bullet element.
+BULLET_SUCCESSORS = ("a:tabLst", "a:defRPr", "a:extLst")
 
 
 def clear_paragraph_bullets(paragraph):
@@ -68,7 +73,7 @@ def apply_paragraph_properties(paragraph, para_data: Dict[str, Any]):
         # Add bullet character
         buChar = OxmlElement("a:buChar")
         buChar.set("char", "•")
-        pPr.append(buChar)
+        pPr.insert_element_before(buChar, *BULLET_SUCCESSORS)
 
         # Default to left alignment for bullets if not specified
         if "alignment" not in para_data:
@@ -80,7 +85,7 @@ def apply_paragraph_properties(paragraph, para_data: Dict[str, Any]):
 
         # Add buNone element
         buNone = OxmlElement("a:buNone")
-        pPr.insert(0, buNone)
+        pPr.insert_element_before(buNone, *BULLET_SUCCESSORS)
 
     # Apply alignment
     if "alignment" in para_data:
@@ -181,24 +186,16 @@ def validate_replacements(inventory: InventoryData, replacements: Dict) -> List[
         # Check each shape
         for shape_key in shapes_data.keys():
             if shape_key not in inventory[slide_key]:
-                # Find shapes without replacements defined and show their content
-                unused_with_content = []
-                for k in inventory[slide_key].keys():
-                    if k not in shapes_data:
-                        shape_data = inventory[slide_key][k]
-                        # Get text from paragraphs as preview
-                        paragraphs = shape_data.paragraphs
-                        if paragraphs and paragraphs[0].text:
-                            first_text = paragraphs[0].text[:50]
-                            if len(paragraphs[0].text) > 50:
-                                first_text += "..."
-                            unused_with_content.append(f"{k} ('{first_text}')")
-                        else:
-                            unused_with_content.append(k)
-
+                available = []
+                for k, shape_data in inventory[slide_key].items():
+                    paragraphs = shape_data.paragraphs
+                    preview = paragraphs[0].text if paragraphs else ""
+                    if len(preview) > 50:
+                        preview = preview[:50] + "..."
+                    available.append(f"{k} ('{preview}')" if preview else k)
                 errors.append(
                     f"Shape '{shape_key}' not found on '{slide_key}'. "
-                    f"Shapes without replacements: {', '.join(sorted(unused_with_content)) if unused_with_content else 'none'}"
+                    f"Available shapes: {', '.join(available) or 'none'}"
                 )
 
     return errors
@@ -239,7 +236,7 @@ def apply_replacements(pptx_file: str, json_file: str, output_file: str):
             print(f"  - {error}")
         print("\nPlease check the inventory and update your replacement JSON.")
         print(
-            "You can regenerate the inventory with: uv run inventory.py <input.pptx> <output.json>"
+            "Regenerate the inventory with: uv run <skill>/scripts/inventory.py <input.pptx> <output.json>"
         )
         raise ValueError(f"Found {len(errors)} validation error(s)")
 
@@ -250,8 +247,8 @@ def apply_replacements(pptx_file: str, json_file: str, output_file: str):
 
     # Process each slide from inventory
     for slide_key, shapes_dict in inventory.items():
-        if not slide_key.startswith("slide-"):
-            continue
+        if slide_key not in replacements:
+            continue  # Slides left out of the JSON keep their text
 
         slide_index = int(slide_key.split("-")[1])
 
@@ -376,6 +373,8 @@ def main():
 
     try:
         apply_replacements(str(input_pptx), str(replacements_json), str(output_pptx))
+    except ValueError as e:  # Problems already explained above
+        sys.exit(f"Error: {e}")
     except Exception as e:
         print(f"Error applying replacements: {e}")
         import traceback

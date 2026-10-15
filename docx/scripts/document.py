@@ -2,12 +2,15 @@
 """
 Library for working with Word documents: comments, tracked changes, and editing.
 
-Usage:
-    from skills.docx.scripts.document import Document
+Usage (with the docx skill directory on sys.path):
+    from scripts.document import Document
 
     # Initialize
     doc = Document('workspace/unpacked')
     doc = Document('workspace/unpacked', author="John Doe", initials="JD")
+
+    # Tracked replacement, found even when the text spans several runs
+    doc["word/document.xml"].tracked_replace("30 days", "45 days")
 
     # Find nodes
     node = doc["word/document.xml"].get_node(tag="w:del", attrs={"w:id": "1"})
@@ -22,12 +25,18 @@ Usage:
     doc["word/document.xml"].revert_insertion(ins_node)  # Reject insertion
     doc["word/document.xml"].revert_deletion(del_node)  # Reject deletion
 
+    # Resolve every tracked change, as Word's Accept All / Reject All
+    doc.accept_all_changes()
+    doc.reject_all_changes()
+
     # Save
     doc.save()
 """
 
+import difflib
 import html
 import random
+import re
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -42,6 +51,40 @@ from .utilities import XMLEditor
 
 # Path to template files
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+MC_NAMESPACE = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+# Prefixes the library may write, declared on demand in whichever part needs them.
+KNOWN_NAMESPACES = {
+    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "mc": MC_NAMESPACE,
+    "w14": "http://schemas.microsoft.com/office/word/2010/wordml",
+    "w15": "http://schemas.microsoft.com/office/word/2012/wordml",
+    "w16": "http://schemas.microsoft.com/office/word/2018/wordml",
+    "w16cex": "http://schemas.microsoft.com/office/word/2018/wordml/cex",
+    "w16cid": "http://schemas.microsoft.com/office/word/2016/wordml/cid",
+    "w16du": "http://schemas.microsoft.com/office/word/2023/wordml/word16du",
+    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    "wp14": "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing",
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "pic": "http://schemas.openxmlformats.org/drawingml/2006/picture",
+}
+
+# Extensions newer than the base standard. Consumers that predate one must be
+# told they may skip it, or they reject the file as corrupt.
+IGNORABLE_PREFIXES = {"w14", "w15", "w16", "w16cex", "w16cid", "w16du", "wp14"}
+
+# Run children that carry no visible content and never break a text match.
+_INVISIBLE_RUN_CHILDREN = {"w:rPr", "w:lastRenderedPageBreak"}
+
+# CJK ideographs, kana and hangul are compared one character at a time, other
+# text word by word, so a diff marks "30" in "期限为30天" rather than the whole run.
+_DIFF_TOKEN = re.compile(
+    r"[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]"
+    r"|[^\W぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]+"
+    r"|\s+|."
+)
 
 
 class DocxXMLEditor(XMLEditor):
@@ -86,32 +129,33 @@ class DocxXMLEditor(XMLEditor):
                         pass
         return max_id + 1
 
-    def _ensure_w16du_namespace(self):
-        """Ensure w16du namespace is declared on the root element."""
+    def _ensure_namespace(self, prefix):
+        """Declare a known prefix on the root element, marking extensions ignorable."""
         root = self.dom.documentElement
-        if not root.hasAttribute("xmlns:w16du"):  # type: ignore
-            root.setAttribute(  # type: ignore
-                "xmlns:w16du",
-                "http://schemas.microsoft.com/office/word/2023/wordml/word16du",
-            )
+        if not root.hasAttribute(f"xmlns:{prefix}"):  # type: ignore
+            root.setAttribute(f"xmlns:{prefix}", KNOWN_NAMESPACES[prefix])  # type: ignore
+        if prefix in IGNORABLE_PREFIXES:
+            if not root.hasAttribute("xmlns:mc"):  # type: ignore
+                root.setAttribute("xmlns:mc", MC_NAMESPACE)  # type: ignore
+            ignorable = root.getAttribute("mc:Ignorable").split()  # type: ignore
+            if prefix not in ignorable:
+                root.setAttribute("mc:Ignorable", " ".join([*ignorable, prefix]))  # type: ignore
+
+    def _parse_fragment(self, xml_content):
+        """Parse a fragment, first declaring any known prefix it uses on the root."""
+        for prefix in set(re.findall(r"[<\s/]([A-Za-z][\w]*):[A-Za-z]", xml_content)):
+            if prefix in KNOWN_NAMESPACES:
+                self._ensure_namespace(prefix)
+        return super()._parse_fragment(xml_content)
+
+    def _ensure_w16du_namespace(self):
+        self._ensure_namespace("w16du")
 
     def _ensure_w16cex_namespace(self):
-        """Ensure w16cex namespace is declared on the root element."""
-        root = self.dom.documentElement
-        if not root.hasAttribute("xmlns:w16cex"):  # type: ignore
-            root.setAttribute(  # type: ignore
-                "xmlns:w16cex",
-                "http://schemas.microsoft.com/office/word/2018/wordml/cex",
-            )
+        self._ensure_namespace("w16cex")
 
     def _ensure_w14_namespace(self):
-        """Ensure w14 namespace is declared on the root element."""
-        root = self.dom.documentElement
-        if not root.hasAttribute("xmlns:w14"):  # type: ignore
-            root.setAttribute(  # type: ignore
-                "xmlns:w14",
-                "http://schemas.microsoft.com/office/word/2010/wordml",
-            )
+        self._ensure_namespace("w14")
 
     def _inject_attributes_to_nodes(self, nodes):
         """Inject RSID, author, and date attributes into DOM nodes where applicable.
@@ -442,7 +486,8 @@ class DocxXMLEditor(XMLEditor):
         Returns:
             str: Transformed XML with tracked change wrapping
         """
-        wrapper = f'<root xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">{xml_content}</root>'
+        declarations = " ".join(f'xmlns:{p}="{uri}"' for p, uri in KNOWN_NAMESPACES.items())
+        wrapper = f"<root {declarations}>{xml_content}</root>"
         doc = minidom.parseString(wrapper)
         para = doc.getElementsByTagName("w:p")[0]
 
@@ -483,8 +528,10 @@ class DocxXMLEditor(XMLEditor):
         """Mark a w:r or w:p element as deleted with tracked changes (in-place DOM manipulation).
 
         For w:r: wraps in <w:del>, converts <w:t> to <w:delText>, preserves w:rPr
-        For w:p (regular): wraps content in <w:del>, converts <w:t> to <w:delText>
-        For w:p (numbered list): adds <w:del/> to w:rPr in w:pPr, wraps content in <w:del>
+        For w:p: wraps content in <w:del>, converts <w:t> to <w:delText>, and marks
+            the paragraph mark deleted too, so accepting the change removes the
+            paragraph instead of leaving it empty. The last paragraph of a body,
+            cell or text box keeps its mark, as in Word.
 
         Args:
             elem: A w:r or w:p DOM element without existing tracked changes
@@ -536,26 +583,12 @@ class DocxXMLEditor(XMLEditor):
             if elem.getElementsByTagName("w:ins") or elem.getElementsByTagName("w:del"):
                 raise ValueError("w:p element already contains tracked changes")
 
-            # Check if it's a numbered list item
-            pPr_list = elem.getElementsByTagName("w:pPr")
-            is_numbered = pPr_list and pPr_list[0].getElementsByTagName("w:numPr")
-
-            if is_numbered:
-                # Add <w:del/> to w:rPr in w:pPr
-                pPr = pPr_list[0]
-                rPr_list = pPr.getElementsByTagName("w:rPr")
-
-                if not rPr_list:
-                    rPr = self.dom.createElement("w:rPr")
-                    pPr.appendChild(rPr)
-                else:
-                    rPr = rPr_list[0]
-
-                # Add <w:del/> marker
+            # Mark the paragraph mark deleted, unless nothing follows to merge with
+            del_marker = None
+            if _next_element(elem) is not None and _next_element(elem).tagName == "w:p":
                 del_marker = self.dom.createElement("w:del")
-                rPr.insertBefore(
-                    del_marker, rPr.firstChild
-                ) if rPr.firstChild else rPr.appendChild(del_marker)
+                rPr = self._paragraph_mark_rpr(elem)
+                rPr.insertBefore(del_marker, rPr.firstChild)
 
             # Convert w:t → w:delText in all runs
             for t_elem in list(elem.getElementsByTagName("w:t")):
@@ -584,13 +617,471 @@ class DocxXMLEditor(XMLEditor):
                 del_wrapper.appendChild(child)
             elem.appendChild(del_wrapper)
 
-            # Inject attributes to the deletion wrapper
-            self._inject_attributes_to_nodes([del_wrapper])
+            # The marker and the wrapper each need their own id, author and date
+            self._inject_attributes_to_nodes([n for n in (del_marker, del_wrapper) if n])
 
             return elem
 
         else:
             raise ValueError(f"Element must be w:r or w:p, got {elem.nodeName}")
+
+    def _paragraph_mark_rpr(self, para):
+        """Return the paragraph mark's <w:rPr>, creating it (and <w:pPr>) if needed."""
+        pPr = _child(para, "w:pPr")
+        if pPr is None:
+            pPr = self.dom.createElement("w:pPr")
+            para.insertBefore(pPr, para.firstChild)
+        rPr = _child(pPr, "w:rPr")
+        if rPr is None:
+            rPr = self.dom.createElement("w:rPr")
+            # CT_PPr ends with rPr, sectPr, pPrChange, in that order
+            follower = _child(pPr, "w:sectPr") or _child(pPr, "w:pPrChange")
+            pPr.insertBefore(rPr, follower)
+        return rPr
+
+    # ==================== Tracked replacement ====================
+
+    def tracked_replace(self, old, new, scope=None, replace_all=False):
+        """Replace `old` with `new` as tracked changes, marking only what differs.
+
+        Finds `old` in a paragraph's visible text even when Word has split it
+        across runs: formatting, proofing marks, or a change of script in CJK
+        text all split runs. Unchanged text stays in its original runs with
+        their formatting and RSIDs. Deleted text keeps its formatting, and
+        inserted text takes the formatting of the text it replaces. Tabs and
+        line breaks match "\\t" and "\\n".
+
+        Args:
+            old: Text to find. It must lie within one paragraph.
+            new: Replacement text; "" deletes.
+            scope: Element to search within (a paragraph, table, ...). Defaults
+                to the whole part.
+            replace_all: Replace every occurrence. Otherwise `old` must occur
+                exactly once in scope.
+
+        Returns:
+            list: The w:del and w:ins elements created, in document order.
+
+        Raises:
+            ValueError: If `old` is not found, is ambiguous, or the change would
+                have to split another tracked insertion.
+        """
+        if not old:
+            raise ValueError("old must not be empty")
+        root = scope if scope is not None else self.dom.documentElement
+        paragraphs = [root] if getattr(root, "tagName", None) == "w:p" else list(
+            root.getElementsByTagName("w:p")
+        )
+        matches = []
+        for para in paragraphs:
+            text = "".join(seg[2] for seg in self._segments(para))
+            start = text.find(old)
+            while start != -1:
+                matches.append((para, start))
+                start = text.find(old, start + len(old))
+
+        if not matches:
+            raise ValueError(
+                f"Text not found: {old!r}. It must lie within one paragraph and match the "
+                "visible text exactly (deleted text is not searched)."
+            )
+        if len(matches) > 1 and not replace_all:
+            contexts = "; ".join(
+                repr(self._get_element_text(p)[:60]) for p, _ in matches[:5]
+            )
+            raise ValueError(
+                f"{old!r} occurs {len(matches)} times ({contexts}). Pass scope= to narrow "
+                "the search, or replace_all=True."
+            )
+
+        created = []
+        # Last match first, so earlier offsets stay valid as text becomes deleted text
+        for para, start in reversed(matches):
+            created[:0] = self._replace_in_paragraph(para, start, old, new)
+        return created
+
+    def _segments(self, para):
+        """Visible content of `para` as (run, child, text) triples, in order.
+
+        Text comes from w:t; a tab is "\\t" and a break "\\n". Any other content
+        (fields, drawings, footnote references) is an object-replacement
+        character, so no match can span it. Deleted runs are left out.
+        """
+        segments = []
+        for run in _paragraph_runs(para):
+            if _inside(run, ("w:del", "w:moveFrom"), stop=para):
+                continue
+            for child in run.childNodes:
+                if child.nodeType != child.ELEMENT_NODE or child.tagName in _INVISIBLE_RUN_CHILDREN:
+                    continue
+                if child.tagName == "w:t":
+                    text = "".join(n.data for n in child.childNodes if n.nodeType == n.TEXT_NODE)
+                elif child.tagName == "w:tab":
+                    text = "\t"
+                elif child.tagName in ("w:br", "w:cr"):
+                    text = "\n"
+                else:
+                    text = "￼"
+                if text:
+                    segments.append((run, child, text))
+        return segments
+
+    def _replace_in_paragraph(self, para, start, old, new):
+        # One content child per run. This and the splits below only move run
+        # boundaries; the text and formatting are unchanged if a check fails.
+        for run in _paragraph_runs(para):
+            self._split_run_children(run)
+        try:
+            plan = self._plan(para, start, _diff_ops(old, new), new)
+        except ValueError:
+            # Inside another author's insertion only its edges can take new
+            # text, so fall back to replacing the whole match at once
+            plan = self._plan(para, start, [("replace", 0, len(old), 0, len(new))], new)
+
+        created = []
+        for tag, runs, before, after, text in plan:
+            if tag == "equal":
+                continue
+            deletions = [self._wrap_deleted(group) for group in _sibling_groups(runs)]
+            created += deletions
+            if text:
+                style = runs[0] if runs else before or after
+                anchor, where = self._outside_insertion(
+                    *((deletions[-1], "after") if deletions else self._insertion_point(before, after))
+                )
+                ins = self._make_insertion(style, text)
+                anchor.parentNode.insertBefore(ins, anchor.nextSibling if where == "after" else anchor)
+                created.append(ins)
+        self._inject_attributes_to_nodes(created)
+        return created
+
+    def _plan(self, para, start, ops, new):
+        """Map each edit operation onto runs, and check it can be made, before any change.
+
+        Returns (tag, runs covered, run before, run after, text to insert) per
+        operation. Raises ValueError if an insertion would land inside an
+        existing tracked insertion.
+        """
+        for offset in sorted({start + i for _, i1, i2, _, _ in ops for i in (i1, i2)}):
+            self._split_at(para, offset)
+        spans, pos = [], 0
+        for run, child, text in self._segments(para):
+            spans.append((pos, pos + len(text), run))
+            pos += len(text)
+        plan = []
+        for tag, i1, i2, j1, j2 in ops:
+            a, b = start + i1, start + i2
+            runs = [r for s, e, r in spans if s >= a and e <= b]
+            before = next((r for s, e, r in reversed(spans) if e <= a), None)
+            after = next((r for s, e, r in spans if s >= b), None)
+            text = new[j1:j2]
+            if tag != "equal" and text:
+                # A deletion wrapper takes the place of its runs, so the last run stands in for it
+                self._outside_insertion(*((runs[-1], "after") if runs else self._insertion_point(before, after)))
+            plan.append((tag, runs, before, after, text))
+        return plan
+
+    @staticmethod
+    def _insertion_point(before, after):
+        return (before, "after") if before is not None else (after, "before")
+
+    def _split_run_children(self, run):
+        """Split a run holding several content children into one run per child."""
+        rPr = _child(run, "w:rPr")
+        content = [
+            c for c in run.childNodes
+            if c.nodeType == c.ELEMENT_NODE and c.tagName != "w:rPr"
+        ]
+        if len(content) <= 1:
+            return
+        for child in content:
+            piece = run.cloneNode(False)
+            if rPr is not None:
+                piece.appendChild(rPr.cloneNode(True))
+            piece.appendChild(child)  # moves it out of the original run
+            run.parentNode.insertBefore(piece, run)
+        run.parentNode.removeChild(run)
+
+    def _split_at(self, para, offset):
+        """Split the text run that straddles `offset` so a run boundary falls there."""
+        pos = 0
+        for run, child, text in self._segments(para):
+            if pos < offset < pos + len(text):
+                if child.tagName != "w:t":
+                    raise ValueError("Cannot split inside a tab or break")
+                right = run.cloneNode(True)
+                k = offset - pos
+                _set_text(child, text[:k])
+                _set_text(_child(right, "w:t"), text[k:])
+                run.parentNode.insertBefore(right, run.nextSibling)
+                return
+            pos += len(text)
+
+    def _wrap_deleted(self, runs):
+        """Wrap consecutive sibling runs in one <w:del>, turning their text into deleted text."""
+        wrapper = self.dom.createElement("w:del")
+        runs[0].parentNode.insertBefore(wrapper, runs[0])
+        for run in runs:
+            for t in list(run.getElementsByTagName("w:t")):
+                _rename(self.dom, t, "w:delText")
+            for t in list(run.getElementsByTagName("w:instrText")):
+                _rename(self.dom, t, "w:delInstrText")
+            if run.hasAttribute("w:rsidR"):
+                run.setAttribute("w:rsidDel", run.getAttribute("w:rsidR"))
+                run.removeAttribute("w:rsidR")
+            wrapper.appendChild(run)
+        return wrapper
+
+    def _make_insertion(self, style_run, text):
+        """A <w:ins> holding `text` in a run formatted like `style_run`."""
+        rPr = _child(style_run, "w:rPr") if style_run is not None else None
+        rpr_xml = rPr.toxml() if rPr is not None else ""
+        parts = []
+        for piece in re.split(r"(\t|\n)", text):
+            if piece == "\t":
+                parts.append("<w:tab/>")
+            elif piece == "\n":
+                parts.append("<w:br/>")
+            elif piece:
+                parts.append(f'<w:t xml:space="preserve">{html.escape(piece, quote=False)}</w:t>')
+        return self._parse_fragment(f"<w:ins><w:r>{rpr_xml}{''.join(parts)}</w:r></w:ins>")[0]
+
+    def _outside_insertion(self, anchor, where):
+        """Move an insertion point out of an existing <w:ins>, which cannot nest another.
+
+        Only the edges of that insertion are reachable without splitting it,
+        which would change its identity.
+        """
+        node = anchor
+        while node.parentNode is not None and node.parentNode.nodeType == node.ELEMENT_NODE:
+            parent = node.parentNode
+            if parent.tagName == "w:p":
+                break
+            if parent.tagName == "w:ins":
+                siblings = [c for c in parent.childNodes if c.nodeType == c.ELEMENT_NODE]
+                at_edge = siblings[-1] is node if where == "after" else siblings[0] is node
+                if not at_edge:
+                    raise ValueError(
+                        f"The change falls inside {parent.getAttribute('w:author') or 'another'}'s "
+                        "tracked insertion. Replace the whole insertion, or use revert_insertion()."
+                    )
+                anchor = parent
+            node = parent
+        return anchor, where
+
+    # ==================== Resolving tracked changes ====================
+
+    _PROPERTY_CHANGES = (
+        "w:rPrChange", "w:pPrChange", "w:sectPrChange", "w:tblPrChange", "w:trPrChange",
+        "w:tcPrChange", "w:tblGridChange", "w:tblPrExChange", "w:numberingChange",
+    )
+
+    def accept_all_changes(self):
+        """Accept every tracked change in this part. See Document.accept_all_changes()."""
+        self._resolve_changes(accept=True)
+
+    def reject_all_changes(self):
+        """Reject every tracked change in this part. See Document.reject_all_changes()."""
+        self._resolve_changes(accept=False)
+
+    def _resolve_changes(self, accept):
+        keep, drop = ("w:ins", "w:moveTo"), ("w:del", "w:moveFrom")
+        if not accept:
+            keep, drop = drop, keep
+        markers, rows, content = [], [], []
+        for tag in (*keep, *drop):
+            for elem in self.dom.getElementsByTagName(tag):
+                parent = elem.parentNode.tagName
+                if parent == "w:rPr":
+                    markers.append(elem)
+                elif parent == "w:trPr":
+                    rows.append(elem)
+                else:
+                    content.append(elem)
+
+        # Removed content first, so a deletion nested in an insertion goes with it
+        for elem in content:
+            if elem.tagName in drop and elem.parentNode is not None:
+                elem.parentNode.removeChild(elem)
+        for elem in content:
+            if elem.tagName in keep and elem.parentNode is not None:
+                if not accept:  # rejecting a deletion turns its text back into text
+                    for t in list(elem.getElementsByTagName("w:delText")):
+                        _rename(self.dom, t, "w:t")
+                    for t in list(elem.getElementsByTagName("w:delInstrText")):
+                        _rename(self.dom, t, "w:instrText")
+                    for run in elem.getElementsByTagName("w:r"):
+                        if run.hasAttribute("w:rsidDel"):
+                            run.removeAttribute("w:rsidDel")
+                while elem.firstChild:
+                    elem.parentNode.insertBefore(elem.firstChild, elem)
+                elem.parentNode.removeChild(elem)
+
+        for marker in rows:
+            row = marker.parentNode.parentNode
+            if marker.tagName in drop and row.parentNode is not None:
+                row.parentNode.removeChild(row)
+            elif marker.parentNode is not None:
+                marker.parentNode.removeChild(marker)
+
+        # A removed paragraph mark joins its paragraph to the next one, whose
+        # mark (and so paragraph formatting) survives
+        for marker in markers:
+            rPr = marker.parentNode
+            pPr = rPr.parentNode
+            rPr.removeChild(marker)
+            para = pPr.parentNode if pPr.tagName == "w:pPr" else None
+            # Drop properties the marker leaves empty
+            for props in (rPr, pPr):
+                if props.tagName in ("w:rPr", "w:pPr") and not any(
+                    c.nodeType == c.ELEMENT_NODE for c in props.childNodes
+                ) and props.parentNode is not None:
+                    props.parentNode.removeChild(props)
+            if marker.tagName not in drop or para is None or para.tagName != "w:p":
+                continue
+            following = _next_element(para)
+            if following is None or following.tagName != "w:p" or _child(pPr, "w:sectPr"):
+                continue
+            anchor = _child(following, "w:pPr")
+            anchor = anchor.nextSibling if anchor is not None else following.firstChild
+            for child in [c for c in para.childNodes if c.nodeName != "w:pPr"]:
+                following.insertBefore(child, anchor)
+            para.parentNode.removeChild(para)
+
+        for tag in self._PROPERTY_CHANGES:
+            for change in list(self.dom.getElementsByTagName(tag)):
+                parent = change.parentNode
+                if not accept:
+                    self._restore_properties(parent, change)
+                parent.removeChild(change)
+
+        for tag in ("w:moveFromRangeStart", "w:moveFromRangeEnd",
+                    "w:moveToRangeStart", "w:moveToRangeEnd"):
+            for elem in list(self.dom.getElementsByTagName(tag)):
+                elem.parentNode.removeChild(elem)
+
+    def _restore_properties(self, props, change):
+        """Put back the properties a *Change element recorded as the originals."""
+        previous = next((c for c in change.childNodes if c.nodeType == c.ELEMENT_NODE), None)
+        kept = {change.tagName}
+        if props.tagName == "w:pPr":  # the record covers neither the mark's rPr nor sectPr
+            kept |= {"w:rPr", "w:sectPr"}
+        elif props.tagName == "w:rPr":  # paragraph-mark revision markers stay
+            kept |= {"w:ins", "w:del", "w:moveFrom", "w:moveTo"}
+        for child in list(props.childNodes):
+            if child.nodeType != child.ELEMENT_NODE or child.tagName not in kept:
+                props.removeChild(child)
+        if previous is None:
+            return
+        anchor = change
+        if props.tagName == "w:pPr":
+            anchor = _child(props, "w:rPr") or _child(props, "w:sectPr") or change
+        for child in list(previous.childNodes):
+            props.insertBefore(child, anchor)
+
+
+def _child(elem, tag):
+    """First direct child element of `elem` with `tag`, or None."""
+    for c in elem.childNodes:
+        if c.nodeType == c.ELEMENT_NODE and c.tagName == tag:
+            return c
+    return None
+
+
+def _next_element(elem):
+    node = elem.nextSibling
+    while node is not None and node.nodeType != node.ELEMENT_NODE:
+        node = node.nextSibling
+    return node
+
+
+def _inside(elem, tags, stop):
+    """Whether an ancestor of `elem` below `stop` has one of `tags`."""
+    node = elem.parentNode
+    while node is not None and node is not stop:
+        if node.nodeType == node.ELEMENT_NODE and node.tagName in tags:
+            return True
+        node = node.parentNode
+    return False
+
+
+def _paragraph_runs(para):
+    """Runs whose nearest enclosing paragraph is `para`, in document order."""
+    runs = []
+
+    def walk(node):
+        for c in node.childNodes:
+            if c.nodeType != c.ELEMENT_NODE or c.tagName in ("w:p", "w:pPr"):
+                continue
+            if c.tagName == "w:r":
+                runs.append(c)
+            else:
+                walk(c)
+
+    walk(para)
+    return runs
+
+
+def _sibling_groups(runs):
+    """Split runs into groups of adjacent element siblings."""
+    groups = []
+    for run in runs:
+        if groups and _next_element(groups[-1][-1]) is run:
+            groups[-1].append(run)
+        else:
+            groups.append([run])
+    return groups
+
+
+def _set_text(t_elem, text):
+    while t_elem.firstChild:
+        t_elem.removeChild(t_elem.firstChild)
+    t_elem.appendChild(t_elem.ownerDocument.createTextNode(text))
+    if text[:1].isspace() or text[-1:].isspace():
+        t_elem.setAttribute("xml:space", "preserve")
+
+
+def _rename(dom, elem, tag):
+    """Replace `elem` with an element named `tag` holding its children and attributes."""
+    renamed = dom.createElement(tag)
+    while elem.firstChild:
+        renamed.appendChild(elem.firstChild)
+    for i in range(elem.attributes.length):
+        attr = elem.attributes.item(i)
+        renamed.setAttribute(attr.name, attr.value)
+    elem.parentNode.replaceChild(renamed, elem)
+    return renamed
+
+
+def _diff_ops(old, new):
+    """Edit operations turning `old` into `new`, as character-offset opcodes.
+
+    Words are compared whole and CJK characters singly. A whitespace-only
+    match between two changes is folded into them, so "red car" -> "blue truck"
+    reads as one replacement rather than two.
+    """
+    a, b = _DIFF_TOKEN.findall(old), _DIFF_TOKEN.findall(new)
+    pos_a, pos_b = [0], [0]
+    for tok in a:
+        pos_a.append(pos_a[-1] + len(tok))
+    for tok in b:
+        pos_b.append(pos_b[-1] + len(tok))
+    ops = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        ops.append([tag, pos_a[i1], pos_a[i2], pos_b[j1], pos_b[j2]])
+    merged = []
+    for k, op in enumerate(ops):
+        folds = (
+            op[0] == "equal"
+            and not old[op[1]:op[2]].strip()
+            and 0 < k < len(ops) - 1
+            and ops[k + 1][0] != "equal"
+        )
+        if merged and merged[-1][0] != "equal" and (folds or op[0] != "equal"):
+            merged[-1] = ["replace", merged[-1][1], op[2], merged[-1][3], op[4]]
+        else:
+            merged.append(op)
+    return [tuple(op) for op in merged]
 
 
 def _generate_hex_id() -> str:
@@ -779,17 +1270,28 @@ class Document:
             The comment ID that was created
 
         Example:
-            start_node = cm.get_document_node(tag="w:del", id="1")
-            end_node = cm.get_document_node(tag="w:ins", id="2")
-            cm.add_comment(start=start_node, end=end_node, text="Explanation")
+            start_node = doc["word/document.xml"].get_node(tag="w:del", attrs={"w:id": "1"})
+            end_node = doc["word/document.xml"].get_node(tag="w:ins", attrs={"w:id": "2"})
+            doc.add_comment(start=start_node, end=end_node, text="Explanation")
         """
         comment_id = self.next_comment_id
         para_id = _generate_hex_id()
         durable_id = _generate_hex_id()
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # Add comment ranges to document.xml immediately
-        self._document.insert_before(start, self._comment_range_start_xml(comment_id))
+        # Add comment ranges to document.xml immediately. A paragraph anchor
+        # starts inside the paragraph, after its properties, where every
+        # consumer looks for it.
+        if start.tagName == "w:p":
+            pPr = _child(start, "w:pPr")
+            if pPr is not None:
+                self._document.insert_after(pPr, self._comment_range_start_xml(comment_id))
+            elif start.firstChild is not None:
+                self._document.insert_before(start.firstChild, self._comment_range_start_xml(comment_id))
+            else:
+                self._document.append_to(start, self._comment_range_start_xml(comment_id))
+        else:
+            self._document.insert_before(start, self._comment_range_start_xml(comment_id))
 
         # If end node is a paragraph, append comment markup inside it
         # Otherwise insert after it (for run-level anchors)
@@ -834,7 +1336,7 @@ class Document:
             The comment ID that was created for the reply
 
         Example:
-            cm.reply_to_comment(parent_comment_id=0, text="I agree with this change")
+            doc.reply_to_comment(parent_comment_id=0, text="I agree with this change")
         """
         if parent_comment_id not in self.existing_comments:
             raise ValueError(f"Parent comment with id={parent_comment_id} not found")
@@ -886,41 +1388,55 @@ class Document:
         self.next_comment_id += 1
         return comment_id
 
+    def accept_all_changes(self):
+        """Accept every tracked change in the document, as Word's Accept All does.
+
+        Covers the body, headers, footers, footnotes, endnotes and comments.
+        Call it before making your own edits: edits made earlier must already
+        be tracked, and later ones are checked against the accepted document.
+        """
+        self._resolve_all(accept=True)
+
+    def reject_all_changes(self):
+        """Reject every tracked change in the document, as Word's Reject All does.
+
+        Same scope and ordering rules as accept_all_changes().
+        """
+        self._resolve_all(accept=False)
+
     def __del__(self):
         """Clean up temporary directory on deletion."""
         if hasattr(self, "temp_dir") and Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir)
 
-    def validate(self) -> None:
+    def validate(self, require_tracking=True) -> None:
         """
-        Validate the document against XSD schema and redlining rules.
+        Validate the document against the XSD schema and, by default, check
+        that every change since loading is a tracked change.
 
         Raises:
             ValueError: If validation fails.
         """
-        # Create validators with current state
         schema_validator = DOCXSchemaValidator(
             self.unpacked_path, self.original_docx, verbose=False
         )
-        redlining_validator = RedliningValidator(
-            self.unpacked_path, self.original_docx, verbose=False
-        )
-
-        # Run validations
         if not schema_validator.validate():
             raise ValueError("Schema validation failed")
-        if not redlining_validator.validate():
+        if require_tracking and not RedliningValidator(
+            self.unpacked_path, self.original_docx, verbose=False, author=self.author
+        ).validate():
             raise ValueError("Redlining validation failed")
 
-    def save(self, destination=None, validate=True) -> None:
+    def save(self, destination=None, validate=True, require_tracking=True) -> None:
         """
         Save all modified XML files to disk and copy to destination directory.
-
-        This persists all changes made via add_comment() and reply_to_comment().
 
         Args:
             destination: Optional path to save to. If None, saves back to original directory.
             validate: If True, validates document before saving (default: True).
+            require_tracking: If True (default), every edit must be a tracked
+                change. Pass False to edit a document of your own directly; the
+                schema is still checked.
         """
         # Only ensure comment relationships and content types if comment files exist
         if self.comments_path.exists():
@@ -933,7 +1449,7 @@ class Document:
 
         # Validate by default
         if validate:
-            self.validate()
+            self.validate(require_tracking=require_tracking)
 
         # Copy contents from temp directory to destination (or original directory)
         target_path = Path(destination) if destination else self.original_path
@@ -1222,77 +1738,78 @@ class Document:
 </w15:person>'''
         editor.append_to(root, person_xml)
 
+    # The four comment parts: file name, relationship type, content type.
+    # Each is wired up on its own, since documents from docx-js or pandoc ship
+    # comments.xml already related but none of the other three.
+    COMMENT_PARTS = (
+        (
+            "comments.xml",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
+        ),
+        (
+            "commentsExtended.xml",
+            "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml",
+        ),
+        (
+            "commentsIds.xml",
+            "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml",
+        ),
+        (
+            "commentsExtensible.xml",
+            "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml",
+        ),
+    )
+
     def _ensure_comment_relationships(self):
-        """Ensure word/_rels/document.xml.rels has comment relationships."""
+        """Relate every comment part that exists to document.xml, once."""
         editor = self["word/_rels/document.xml.rels"]
-
-        if self._has_relationship(editor, "comments.xml"):
-            return
-
         root = editor.dom.documentElement
         root_tag = root.tagName  # type: ignore
         prefix = root_tag.split(":")[0] + ":" if ":" in root_tag else ""
-        next_rid_num = int(editor.get_next_rid()[3:])
-
-        # Add relationship elements
-        rels = [
-            (
-                next_rid_num,
-                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
-                "comments.xml",
-            ),
-            (
-                next_rid_num + 1,
-                "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
-                "commentsExtended.xml",
-            ),
-            (
-                next_rid_num + 2,
-                "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds",
-                "commentsIds.xml",
-            ),
-            (
-                next_rid_num + 3,
-                "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible",
-                "commentsExtensible.xml",
-            ),
-        ]
-
-        for rel_id, rel_type, target in rels:
-            rel_xml = f'<{prefix}Relationship Id="rId{rel_id}" Type="{rel_type}" Target="{target}"/>'
-            editor.append_to(root, rel_xml)
+        present = {r.getAttribute("Type") for r in editor.dom.getElementsByTagName(f"{prefix}Relationship")}
+        for name, rel_type, _ in self.COMMENT_PARTS:
+            if (self.word_path / name).exists() and rel_type not in present:
+                rel_xml = f'<{prefix}Relationship Id="{editor.get_next_rid()}" Type="{rel_type}" Target="{name}"/>'
+                editor.append_to(root, rel_xml)
 
     def _ensure_comment_content_types(self):
-        """Ensure [Content_Types].xml has comment content types."""
+        """Declare the content type of every comment part that exists, once."""
         editor = self["[Content_Types].xml"]
-
-        if self._has_override(editor, "/word/comments.xml"):
-            return
-
         root = editor.dom.documentElement
+        for name, _, content_type in self.COMMENT_PARTS:
+            part = f"/word/{name}"
+            if (self.word_path / name).exists() and not self._has_override(editor, part):
+                editor.append_to(root, f'<Override PartName="{part}" ContentType="{content_type}"/>')
 
-        # Add Override elements
-        overrides = [
-            (
-                "/word/comments.xml",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
-            ),
-            (
-                "/word/commentsExtended.xml",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml",
-            ),
-            (
-                "/word/commentsIds.xml",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml",
-            ),
-            (
-                "/word/commentsExtensible.xml",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml",
-            ),
-        ]
+    # ==================== Private: Resolving tracked changes ====================
 
-        for part_name, content_type in overrides:
-            override_xml = (
-                f'<Override PartName="{part_name}" ContentType="{content_type}"/>'
+    def _story_parts(self):
+        """Parts that can hold tracked changes and exist in this document."""
+        names = ["word/document.xml", "word/footnotes.xml", "word/endnotes.xml", "word/comments.xml"]
+        names += sorted(
+            f"word/{p.name}"
+            for pattern in ("header*.xml", "footer*.xml")
+            for p in self.word_path.glob(pattern)
+        )
+        return [n for n in names if (self.unpacked_path / n).exists()]
+
+    def _resolve_all(self, accept):
+        # Edits made so far must be tracked: once resolved, nothing could tell
+        for editor in self._editors.values():
+            editor.save()
+        if not RedliningValidator(
+            self.unpacked_path, self.original_docx, verbose=False, author=self.author
+        ).validate():
+            raise ValueError(
+                "Untracked edits were made before resolving tracked changes; see above."
             )
-            editor.append_to(root, override_xml)
+        for part in self._story_parts():
+            self[part]._resolve_changes(accept)
+        # Later edits are checked against the resolved document
+        for editor in self._editors.values():
+            editor.save()
+        pack_document(self.unpacked_path, self.original_docx, validate=False)

@@ -30,8 +30,8 @@ Skills for creating, reading, and manipulating PDF, PPTX, XLSX, and DOCX files.
 | pypdfium2 | `pypdfium2` | pdf | PDF rendering using PDFium engine |
 | python-pptx | `python-pptx` | pptx | PowerPoint file manipulation |
 | markitdown | `markitdown[pptx]` | pptx | Extract PPTX text as Markdown |
-| openpyxl | `openpyxl` | pdf, xlsx | Excel file manipulation |
-| pandas | `pandas` | pdf, xlsx | Data analysis, table operations |
+| openpyxl | `openpyxl` | xlsx | Excel file manipulation |
+| pandas | `pandas` | xlsx | Data analysis, table operations |
 | matplotlib | `matplotlib` | xlsx | Chart and visualization creation |
 | lxml | `lxml` | pptx, docx | XML processing and XSD schema validation |
 | defusedxml | `defusedxml` | pptx, docx | Secure XML parsing (XXE protection) |
@@ -42,7 +42,7 @@ Each skill that needs Node packages has its own `package.json` and `node_modules
 
 | Skill | Packages |
 |-------|----------|
-| pptx | `pptxgenjs`, `playwright` (launches Chromium for HTML→image rendering), `sharp`, `react`, `react-dom`, `react-icons` (the last four serve agent-written html2pptx scripts, not `html2pptx.js` itself) |
+| pptx | `pptxgenjs` (pinned exactly: html2pptx repairs its XML output), `jszip`, `playwright-core` (drives the installed Google Chrome; it never downloads a browser), `sharp` (rasterizes SVG icons and gradients in agent-written scripts) |
 | docx | `docx` |
 
 pdf and xlsx do not use Node packages.
@@ -65,13 +65,25 @@ On macOS, `brew bundle` at the repo root installs everything below. The Brewfile
 |---------|---------|----------|---------|
 | tesseract | `brew install tesseract` | `tesseract` | pdf |
 | tesseract-lang | `brew install tesseract-lang` | language packs | pdf |
-| qpdf | `brew install qpdf` | `qpdf` | pdf |
-| coreutils | `brew install coreutils` | `gtimeout` | xlsx |
 
 ## Skill Structure
 
 Each skill has:
 - `SKILL.md` — the prompt/instructions for the skill
-- `scripts/` — Python scripts the agent calls via `uv run` (xlsx instead ships a single `recalc.py` at the skill root)
+- `scripts/` — scripts the agent runs by absolute path (`uv run <skill>/scripts/...`) from the user's working directory
 - `package.json` — Node.js dependencies (docx, pptx only)
-- `ooxml/` — XML pack/unpack/validate tooling (docx, pptx only)
+- `ooxml/` — unpack, pack, validate and render tooling for Office XML (docx, pptx only)
+
+Each skill folder is the unit of distribution, so shared code is copied rather than linked. `docx/ooxml/` and `pptx/ooxml/` must stay identical, as must the three copies of `soffice.py` (in both `ooxml/scripts/` and `xlsx/scripts/`). Edit the docx copy, then sync: `rsync -a --delete --exclude __pycache__ docx/ooxml/ pptx/ooxml/ && cp docx/ooxml/scripts/soffice.py xlsx/scripts/`. A test enforces this.
+
+LibreOffice always runs through `soffice.py`, which gives every run a private, throwaway profile and a timeout. Never call `soffice` directly from a script: a shared profile collides with any LibreOffice window the user has open.
+
+## Tests
+
+`tests/` runs every skill script through `uv run`, the way an agent does, against generated documents:
+
+```bash
+uv run --with pytest --with openpyxl --with python-docx --with python-pptx --with Pillow --with pypdf --with reportlab pytest tests -q
+```
+
+Every bug fix comes with a test that fails on the old code. python-docx is used only to build test fixtures.

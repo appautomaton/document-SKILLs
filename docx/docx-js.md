@@ -1,349 +1,169 @@
-# DOCX Library Tutorial
+# Creating Word documents with docx-js
 
-Generate .docx files with JavaScript/TypeScript.
+docx-js (the `docx` npm package, v9) builds a `.docx` from JavaScript objects. This file covers the parts of its API that produce broken or surprising output when guessed at.
 
-**Important: Read this entire document before starting.** Critical formatting rules and common pitfalls are covered throughout - skipping sections may result in corrupted files or rendering issues.
+## Running a script
 
-## Setup
-Run `npm install` in the docx skill directory to install `node_modules/`.
+Write CommonJS (`require`), and put `await` inside an async function, since a `.js` file run by Node is not a module and rejects top-level `await`. Point Node at the skill's packages, and run from the user's working directory so output lands there:
 
-```javascript
-const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, Media, 
-        Header, Footer, AlignmentType, PageOrientation, LevelFormat, ExternalHyperlink, 
-        InternalHyperlink, TableOfContents, HeadingLevel, BorderStyle, WidthType, TabStopType, 
-        TabStopPosition, UnderlineType, ShadingType, VerticalAlign, SymbolRun, PageNumber,
-        FootnoteReferenceRun, Footnote, PageBreak } = require('docx');
-
-// Create & Save
-const doc = new Document({ sections: [{ children: [/* content */] }] });
-Packer.toBuffer(doc).then(buffer => fs.writeFileSync("doc.docx", buffer)); // Node.js
-Packer.toBlob(doc).then(blob => { /* download logic */ }); // Browser
+```bash
+NODE_PATH=<skill>/node_modules node build.js
 ```
 
-## Text & Formatting
-```javascript
-// IMPORTANT: Never use \n for line breaks - always use separate Paragraph elements
-// ❌ WRONG: new TextRun("Line 1\nLine 2")
-// ✅ CORRECT: new Paragraph({ children: [new TextRun("Line 1")] }), new Paragraph({ children: [new TextRun("Line 2")] })
+If `<skill>/node_modules` is missing, run `npm install` in `<skill>` once.
 
-// Basic text with all formatting options
-new Paragraph({
-  alignment: AlignmentType.CENTER,
-  spacing: { before: 200, after: 200 },
-  indent: { left: 720, right: 720 },
-  children: [
-    new TextRun({ text: "Bold", bold: true }),
-    new TextRun({ text: "Italic", italics: true }),
-    new TextRun({ text: "Underlined", underline: { type: UnderlineType.DOUBLE, color: "FF0000" } }),
-    new TextRun({ text: "Colored", color: "FF0000", size: 28, font: "Arial" }), // Arial default
-    new TextRun({ text: "Highlighted", highlight: "yellow" }),
-    new TextRun({ text: "Strikethrough", strike: true }),
-    new TextRun({ text: "x2", superScript: true }),
-    new TextRun({ text: "H2O", subScript: true }),
-    new TextRun({ text: "SMALL CAPS", smallCaps: true }),
-    new SymbolRun({ char: "2022", font: "Symbol" }), // Bullet •
-    new SymbolRun({ char: "00A9", font: "Arial" })   // Copyright © - Arial for symbols
-  ]
-})
-```
+## A complete document
 
-## Styles & Professional Formatting
+Every pattern below appears in this example, which validates cleanly and renders as intended. Start from it and remove what you don't need.
 
 ```javascript
-const doc = new Document({
-  styles: {
-    default: { document: { run: { font: "Arial", size: 24 } } }, // 12pt default
-    paragraphStyles: [
-      // Document title style - override built-in Title style
-      { id: "Title", name: "Title", basedOn: "Normal",
-        run: { size: 56, bold: true, color: "000000", font: "Arial" },
-        paragraph: { spacing: { before: 240, after: 120 }, alignment: AlignmentType.CENTER } },
-      // IMPORTANT: Override built-in heading styles by using their exact IDs
-      { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
-        run: { size: 32, bold: true, color: "000000", font: "Arial" }, // 16pt
-        paragraph: { spacing: { before: 240, after: 240 }, outlineLevel: 0 } }, // Required for TOC
-      { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
-        run: { size: 28, bold: true, color: "000000", font: "Arial" }, // 14pt
-        paragraph: { spacing: { before: 180, after: 180 }, outlineLevel: 1 } },
-      // Custom styles use your own IDs
-      { id: "myStyle", name: "My Style", basedOn: "Normal",
-        run: { size: 28, bold: true, color: "000000" },
-        paragraph: { spacing: { after: 120 }, alignment: AlignmentType.CENTER } }
-    ],
-    characterStyles: [{ id: "myCharStyle", name: "My Char Style",
-      run: { color: "FF0000", bold: true, underline: { type: UnderlineType.SINGLE } } }]
-  },
-  sections: [{
-    properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
-    children: [
-      new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun("Document Title")] }), // Uses overridden Title style
-      new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("Heading 1")] }), // Uses overridden Heading1 style
-      new Paragraph({ style: "myStyle", children: [new TextRun("Custom paragraph style")] }),
-      new Paragraph({ children: [
-        new TextRun("Normal with "),
-        new TextRun({ text: "custom char style", style: "myCharStyle" })
-      ]})
-    ]
-  }]
-});
-```
+const fs = require("fs");
+const {
+  Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, LevelFormat,
+  Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign,
+  ImageRun, ExternalHyperlink, InternalHyperlink, Bookmark, TableOfContents,
+  Header, Footer, PageNumber, PageBreak, FootnoteReferenceRun,
+} = require("docx");
 
-**Professional Font Combinations:**
-- **Arial (Headers) + Arial (Body)** - Most universally supported, clean and professional
-- **Times New Roman (Headers) + Arial (Body)** - Classic serif headers with modern sans-serif body
-- **Georgia (Headers) + Verdana (Body)** - Optimized for screen reading, elegant contrast
+const LETTER = { width: 12240, height: 15840 };     // 8.5 x 11 in, in DXA
+const MARGIN = 1440;                                 // 1 in
+const CONTENT = LETTER.width - 2 * MARGIN;           // 9360 DXA of usable width
 
-**Key Styling Principles:**
-- **Override built-in styles**: Use exact IDs like "Heading1", "Heading2", "Heading3" to override Word's built-in heading styles
-- **HeadingLevel constants**: `HeadingLevel.HEADING_1` uses "Heading1" style, `HeadingLevel.HEADING_2` uses "Heading2" style, etc.
-- **Include outlineLevel**: Set `outlineLevel: 0` for H1, `outlineLevel: 1` for H2, etc. to ensure TOC works correctly
-- **Use custom styles** instead of inline formatting for consistency
-- **Set a default font** using `styles.default.document.run.font` - Arial is universally supported
-- **Establish visual hierarchy** with different font sizes (titles > headers > body)
-- **Add proper spacing** with `before` and `after` paragraph spacing
-- **Use colors sparingly**: Default to black (000000) and shades of gray for titles and headings (heading 1, heading 2, etc.)
-- **Set consistent margins** (1440 = 1 inch is standard)
-
-
-## Lists (ALWAYS USE PROPER LISTS - NEVER USE UNICODE BULLETS)
-```javascript
-// Bullets - ALWAYS use the numbering config, NOT unicode symbols
-// CRITICAL: Use LevelFormat.BULLET constant, NOT the string "bullet"
-const doc = new Document({
-  numbering: {
-    config: [
-      { reference: "bullet-list",
-        levels: [{ level: 0, format: LevelFormat.BULLET, text: "•", alignment: AlignmentType.LEFT,
-          style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
-      { reference: "first-numbered-list",
-        levels: [{ level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT,
-          style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
-      { reference: "second-numbered-list", // Different reference = restarts at 1
-        levels: [{ level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT,
-          style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] }
-    ]
-  },
-  sections: [{
-    children: [
-      // Bullet list items
-      new Paragraph({ numbering: { reference: "bullet-list", level: 0 },
-        children: [new TextRun("First bullet point")] }),
-      new Paragraph({ numbering: { reference: "bullet-list", level: 0 },
-        children: [new TextRun("Second bullet point")] }),
-      // Numbered list items
-      new Paragraph({ numbering: { reference: "first-numbered-list", level: 0 },
-        children: [new TextRun("First numbered item")] }),
-      new Paragraph({ numbering: { reference: "first-numbered-list", level: 0 },
-        children: [new TextRun("Second numbered item")] }),
-      // ⚠️ CRITICAL: Different reference = INDEPENDENT list that restarts at 1
-      // Same reference = CONTINUES previous numbering
-      new Paragraph({ numbering: { reference: "second-numbered-list", level: 0 },
-        children: [new TextRun("Starts at 1 again (because different reference)")] })
-    ]
-  }]
+const border = { style: BorderStyle.SINGLE, size: 4, color: "BFBFBF" };
+const cell = (text, width, opts = {}) => new TableCell({
+  width: { size: width, type: WidthType.DXA },
+  borders: { top: border, bottom: border, left: border, right: border },
+  shading: opts.fill ? { fill: opts.fill, type: ShadingType.CLEAR, color: "auto" } : undefined,
+  verticalAlign: VerticalAlign.CENTER,
+  children: [new Paragraph({ children: [new TextRun({ text, bold: opts.bold })] })],
 });
 
-// ⚠️ CRITICAL NUMBERING RULE: Each reference creates an INDEPENDENT numbered list
-// - Same reference = continues numbering (1, 2, 3... then 4, 5, 6...)
-// - Different reference = restarts at 1 (1, 2, 3... then 1, 2, 3...)
-// Use unique reference names for each separate numbered section!
+async function main() {
+  const doc = new Document({
+    features: { updateFields: true },  // Word refreshes the TOC and page fields on open
+    styles: {
+      default: {
+        document: { run: { font: "Arial", size: 22 } },  // 11 pt body
+        title: { run: { font: "Arial", size: 48, bold: true } },
+        heading1: { run: { font: "Arial", size: 32, bold: true }, paragraph: { spacing: { before: 360, after: 120 } } },
+        heading2: { run: { font: "Arial", size: 26, bold: true }, paragraph: { spacing: { before: 240, after: 80 } } },
+      },
+      paragraphStyles: [
+        { id: "Note", name: "Note", basedOn: "Normal", run: { italics: true, color: "595959" } },
+      ],
+    },
+    numbering: {
+      config: [
+        { reference: "bullets", levels: [{ level: 0, format: LevelFormat.BULLET, text: "•", alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+        { reference: "steps", levels: [{ level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+      ],
+    },
+    footnotes: {
+      1: { children: [new Paragraph("Source: internal finance report, Q3 2026.")] },
+    },
+    sections: [{
+      properties: { page: { size: LETTER, margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN } } },
+      headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun("Quarterly review")] })] }) },
+      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER,
+        children: [new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES] })] })] }) },
+      children: [
+        new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun("Quarterly Review")] }),
+        new TableOfContents("Contents", { hyperlink: true, headingStyleRange: "1-2" }),
+        new Paragraph({ children: [new PageBreak()] }),
+        new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new Bookmark({ id: "results", children: [new TextRun("Results")] })] }),
+        new Paragraph({ children: [
+          new TextRun("Revenue grew 18%"), new FootnoteReferenceRun(1), new TextRun(". See "),
+          new ExternalHyperlink({ link: "https://example.com", children: [new TextRun({ text: "the dashboard", style: "Hyperlink" })] }),
+          new TextRun("."),
+        ] }),
+        new Paragraph({ numbering: { reference: "bullets", level: 0 }, children: [new TextRun("Enterprise up 24%")] }),
+        new Paragraph({ numbering: { reference: "bullets", level: 0 }, children: [new TextRun("Consumer flat")] }),
+        new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun("By region")] }),
+        new Table({
+          width: { size: CONTENT, type: WidthType.DXA },
+          columnWidths: [CONTENT / 2, CONTENT / 2],
+          rows: [
+            new TableRow({ tableHeader: true, children: [cell("Region", CONTENT / 2, { bold: true, fill: "D9E2F3" }), cell("Growth", CONTENT / 2, { bold: true, fill: "D9E2F3" })] }),
+            new TableRow({ children: [cell("EMEA", CONTENT / 2), cell("12%", CONTENT / 2)] }),
+          ],
+        }),
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [
+          new ImageRun({ type: "png", data: fs.readFileSync("chart.png"), transformation: { width: 400, height: 200 },
+            altText: { name: "chart", description: "Revenue by quarter" } }),
+        ] }),
+        new Paragraph({ children: [
+          new ImageRun({ type: "svg", data: fs.readFileSync("logo.svg"), transformation: { width: 100, height: 50 },
+            fallback: { type: "png", data: fs.readFileSync("chart.png") } }),
+        ] }),
+        new Paragraph({ numbering: { reference: "steps", level: 0 }, children: [new TextRun("Review the figures")] }),
+        new Paragraph({ numbering: { reference: "steps", level: 0 }, children: [new TextRun("Approve the budget")] }),
+        new Paragraph({ style: "Note", children: [
+          new TextRun("Back to "), new InternalHyperlink({ anchor: "results", children: [new TextRun({ text: "Results", style: "Hyperlink" })] }),
+        ] }),
+      ],
+    }],
+  });
+  fs.writeFileSync("report.docx", await Packer.toBuffer(doc));
+}
 
-// ⚠️ CRITICAL: NEVER use unicode bullets - they create fake lists that don't work properly
-// new TextRun("• Item")           // WRONG
-// new SymbolRun({ char: "2022" }) // WRONG
-// ✅ ALWAYS use numbering config with LevelFormat.BULLET for real Word lists
+main();
 ```
+
+## Page size
+
+docx-js defaults to **A4** (11906 × 16838 DXA). For US documents, set Letter explicitly as above. Every width depends on this choice, with 1440 DXA = 1 inch:
+
+| Page, 1" margins | `size` | Usable width | Two columns | Three columns |
+|---|---|---|---|---|
+| Letter | `{ width: 12240, height: 15840 }` | 9360 | `[4680, 4680]` | `[3120, 3120, 3120]` |
+| A4 | `{ width: 11906, height: 16838 }` | 9026 | `[4513, 4513]` | `[3009, 3009, 3008]` |
+
+For landscape, add `orientation: PageOrientation.LANDSCAPE` to `size` and keep the portrait numbers; docx-js swaps them. `TabStopPosition.MAX` is 9026, the A4 right margin, so on Letter use 9360 for a right-aligned tab.
+
+## Styles
+
+- Restyle built-in styles through `styles.default`: `document`, `title`, `heading1` … `heading6`, `listParagraph`, `hyperlink`. Defining a `paragraphStyles` entry with id `Heading1` writes a second Heading1 style next to the built-in one, and which one Word applies is undefined.
+- Use `paragraphStyles` and `characterStyles` for your own styles, with your own ids, and apply them with `style: "Note"`.
+- Headings must use `heading: HeadingLevel.HEADING_n` with no custom `style`, or the table of contents will not find them.
+- Sizes are in half-points: `size: 22` is 11 pt.
+
+## Text
+
+- One `Paragraph` per line. `\n` inside a `TextRun` does not make a line break.
+- Run options: `bold`, `italics`, `underline: { type: UnderlineType.SINGLE }`, `strike`, `superScript`, `subScript`, `smallCaps`, `color: "C00000"`, `font`, `size`.
+- `highlight: "yellow"` also writes a `w:highlightCs` element that fails schema validation. Pass `highlightComplexScript: false` alongside it.
+- Type symbols as plain characters in a `TextRun` ("✓ ✗ © ™"). `SymbolRun` codes such as `F0FC` only mean a check mark in the Wingdings font.
+
+## Lists
+
+Use a numbering config with `LevelFormat.BULLET` or `LevelFormat.DECIMAL`, never a typed "•", which looks like a list but does not behave like one. Paragraphs sharing a `reference` continue one sequence, and a different reference restarts at 1. So give each separately numbered list its own reference.
 
 ## Tables
-```javascript
-// Complete table with margins, borders, headers, and bullet points
-const tableBorder = { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" };
-const cellBorders = { top: tableBorder, bottom: tableBorder, left: tableBorder, right: tableBorder };
 
-new Table({
-  columnWidths: [4680, 4680], // ⚠️ CRITICAL: Set column widths at table level - values in DXA (twentieths of a point)
-  margins: { top: 100, bottom: 100, left: 180, right: 180 }, // Set once for all cells
-  rows: [
-    new TableRow({
-      tableHeader: true,
-      children: [
-        new TableCell({
-          borders: cellBorders,
-          width: { size: 4680, type: WidthType.DXA }, // ALSO set width on each cell
-          // ⚠️ CRITICAL: Always use ShadingType.CLEAR to prevent black backgrounds in Word.
-          shading: { fill: "D5E8F0", type: ShadingType.CLEAR }, 
-          verticalAlign: VerticalAlign.CENTER,
-          children: [new Paragraph({ 
-            alignment: AlignmentType.CENTER,
-            children: [new TextRun({ text: "Header", bold: true, size: 22 })]
-          })]
-        }),
-        new TableCell({
-          borders: cellBorders,
-          width: { size: 4680, type: WidthType.DXA }, // ALSO set width on each cell
-          shading: { fill: "D5E8F0", type: ShadingType.CLEAR },
-          children: [new Paragraph({ 
-            alignment: AlignmentType.CENTER,
-            children: [new TextRun({ text: "Bullet Points", bold: true, size: 22 })]
-          })]
-        })
-      ]
-    }),
-    new TableRow({
-      children: [
-        new TableCell({
-          borders: cellBorders,
-          width: { size: 4680, type: WidthType.DXA }, // ALSO set width on each cell
-          children: [new Paragraph({ children: [new TextRun("Regular data")] })]
-        }),
-        new TableCell({
-          borders: cellBorders,
-          width: { size: 4680, type: WidthType.DXA }, // ALSO set width on each cell
-          children: [
-            new Paragraph({ 
-              numbering: { reference: "bullet-list", level: 0 },
-              children: [new TextRun("First bullet point")] 
-            }),
-            new Paragraph({ 
-              numbering: { reference: "bullet-list", level: 0 },
-              children: [new TextRun("Second bullet point")] 
-            })
-          ]
-        })
-      ]
-    })
-  ]
-})
-```
+- Set `columnWidths` on the table and the same `width` (type `WidthType.DXA`) on every cell. Make the widths add up to the usable width of the page size you chose.
+- Shade cells with `type: ShadingType.CLEAR`. `ShadingType.SOLID` paints the cell black in Word.
+- Put borders on cells, not on the table. Every cell needs at least one `Paragraph`.
 
-**IMPORTANT: Table Width & Borders**
-- Use BOTH `columnWidths: [width1, width2, ...]` array AND `width: { size: X, type: WidthType.DXA }` on each cell
-- Values in DXA (twentieths of a point): 1440 = 1 inch, Letter usable width = 9360 DXA (with 1" margins)
-- Apply borders to individual `TableCell` elements, NOT the `Table` itself
+## Links, bookmarks, table of contents
 
-**Precomputed Column Widths (Letter size with 1" margins = 9360 DXA total):**
-- **2 columns:** `columnWidths: [4680, 4680]` (equal width)
-- **3 columns:** `columnWidths: [3120, 3120, 3120]` (equal width)
+- **Bookmarks:** create the target with `new Bookmark({ id, children })` inside a paragraph, and point at it with `new InternalHyperlink({ anchor: id, … })`. A `bookmark:` option on `Paragraph` is silently ignored.
+- **Table of contents:** `TableOfContents` inserts a field that Word fills in when it updates fields. `features: { updateFields: true }` makes Word offer to do that on open, with a prompt that the document "contains fields that may refer to other files". No other file is involved, so tell the user that accepting is safe, and leave the setting out of documents without a table of contents. LibreOffice and `render.py` show the table empty, which is expected.
 
-## Links & Navigation
-```javascript
-// TOC (requires headings) - CRITICAL: Use HeadingLevel only, NOT custom styles
-// ❌ WRONG: new Paragraph({ heading: HeadingLevel.HEADING_1, style: "customHeader", children: [new TextRun("Title")] })
-// ✅ CORRECT: new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("Title")] })
-new TableOfContents("Table of Contents", { hyperlink: true, headingStyleRange: "1-3" }),
+## Images
 
-// External link
-new Paragraph({
-  children: [new ExternalHyperlink({
-    children: [new TextRun({ text: "Google", style: "Hyperlink" })],
-    link: "https://www.google.com"
-  })]
-}),
+- `type` is required (`png`, `jpg`, `gif`, `bmp`, `svg`).
+- `transformation` is in pixels. Keep the aspect ratio of the source, and keep the width within the page.
+- An `svg` image also needs a raster `fallback: { type: "png", data }`, or docx-js throws "Cannot read properties of undefined (reading 'type')".
+- `altText` is optional. When you give it, include `name`, or the drawing fails schema validation.
 
-// Internal link & bookmark
-new Paragraph({
-  children: [new InternalHyperlink({
-    children: [new TextRun({ text: "Go to Section", style: "Hyperlink" })],
-    anchor: "section1"
-  })]
-}),
-new Paragraph({
-  children: [new TextRun("Section Content")],
-  bookmark: { id: "section1", name: "section1" }
-}),
-```
+## Footnotes
 
-## Images & Media
-```javascript
-// Basic image with sizing & positioning
-// CRITICAL: Always specify 'type' parameter - it's REQUIRED for ImageRun
-new Paragraph({
-  alignment: AlignmentType.CENTER,
-  children: [new ImageRun({
-    type: "png", // NEW REQUIREMENT: Must specify image type (png, jpg, jpeg, gif, bmp, svg)
-    data: fs.readFileSync("image.png"),
-    transformation: { width: 200, height: 150, rotation: 0 }, // rotation in degrees
-    altText: { title: "Logo", description: "Company logo", name: "Name" } // IMPORTANT: All three fields are required
-  })]
-})
-```
+Define the notes in `footnotes` on the `Document`, keyed by number, and reference them with `new FootnoteReferenceRun(n)`. There is no `Footnote` class to import.
 
-## Page Breaks
-```javascript
-// Manual page break
-new Paragraph({ children: [new PageBreak()] }),
+## Page breaks and sections
 
-// Page break before paragraph
-new Paragraph({
-  pageBreakBefore: true,
-  children: [new TextRun("This starts on a new page")]
-})
-
-// ⚠️ CRITICAL: NEVER use PageBreak standalone - it will create invalid XML that Word cannot open
-// ❌ WRONG: new PageBreak() 
-// ✅ CORRECT: new Paragraph({ children: [new PageBreak()] })
-```
-
-## Headers/Footers & Page Setup
-```javascript
-const doc = new Document({
-  sections: [{
-    properties: {
-      page: {
-        margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 }, // 1440 = 1 inch
-        size: { orientation: PageOrientation.LANDSCAPE },
-        pageNumbers: { start: 1, formatType: "decimal" } // "upperRoman", "lowerRoman", "upperLetter", "lowerLetter"
-      }
-    },
-    headers: {
-      default: new Header({ children: [new Paragraph({ 
-        alignment: AlignmentType.RIGHT,
-        children: [new TextRun("Header Text")]
-      })] })
-    },
-    footers: {
-      default: new Footer({ children: [new Paragraph({ 
-        alignment: AlignmentType.CENTER,
-        children: [new TextRun("Page "), new TextRun({ children: [PageNumber.CURRENT] }), new TextRun(" of "), new TextRun({ children: [PageNumber.TOTAL_PAGES] })]
-      })] })
-    },
-    children: [/* content */]
-  }]
-});
-```
-
-## Tabs
-```javascript
-new Paragraph({
-  tabStops: [
-    { type: TabStopType.LEFT, position: TabStopPosition.MAX / 4 },
-    { type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 },
-    { type: TabStopType.RIGHT, position: TabStopPosition.MAX * 3 / 4 }
-  ],
-  children: [new TextRun("Left\tCenter\tRight")]
-})
-```
-
-## Constants & Quick Reference
-- **Underlines:** `SINGLE`, `DOUBLE`, `WAVY`, `DASH`
-- **Borders:** `SINGLE`, `DOUBLE`, `DASHED`, `DOTTED`  
-- **Numbering:** `DECIMAL` (1,2,3), `UPPER_ROMAN` (I,II,III), `LOWER_LETTER` (a,b,c)
-- **Tabs:** `LEFT`, `CENTER`, `RIGHT`, `DECIMAL`
-- **Symbols:** `"2022"` (•), `"00A9"` (©), `"00AE"` (®), `"2122"` (™), `"00B0"` (°), `"F070"` (✓), `"F0FC"` (✗)
-
-## Critical Issues & Common Mistakes
-- **CRITICAL: PageBreak must ALWAYS be inside a Paragraph** - standalone PageBreak creates invalid XML that Word cannot open
-- **ALWAYS use ShadingType.CLEAR for table cell shading** - Never use ShadingType.SOLID (causes black background).
-- Measurements in DXA (1440 = 1 inch) | Each table cell needs ≥1 Paragraph | TOC requires HeadingLevel styles only
-- **ALWAYS use custom styles** with Arial font for professional appearance and proper visual hierarchy
-- **ALWAYS set a default font** using `styles.default.document.run.font` - Arial recommended
-- **ALWAYS use columnWidths array for tables** + individual cell widths for compatibility
-- **NEVER use unicode symbols for bullets** - always use proper numbering configuration with `LevelFormat.BULLET` constant (NOT the string "bullet")
-- **NEVER use \n for line breaks anywhere** - always use separate Paragraph elements for each line
-- **ALWAYS use TextRun objects within Paragraph children** - never use text property directly on Paragraph
-- **CRITICAL for images**: ImageRun REQUIRES `type` parameter - always specify "png", "jpg", "jpeg", "gif", "bmp", or "svg"
-- **CRITICAL for bullets**: Must use `LevelFormat.BULLET` constant, not string "bullet", and include `text: "•"` for the bullet character
-- **CRITICAL for numbering**: Each numbering reference creates an INDEPENDENT list. Same reference = continues numbering (1,2,3 then 4,5,6). Different reference = restarts at 1 (1,2,3 then 1,2,3). Use unique reference names for each separate numbered section!
-- **CRITICAL for TOC**: When using TableOfContents, headings must use HeadingLevel ONLY - do NOT add custom styles to heading paragraphs or TOC will break
-- **Tables**: Set `columnWidths` array + individual cell widths, apply borders to cells not table
-- **Set table margins at TABLE level** for consistent cell padding (avoids repetition per cell)
+- **Page breaks:** `new PageBreak()` only works inside a paragraph's children. For a heading that should start a new page, use `pageBreakBefore: true` on the paragraph.
+- **Sections:** each entry in `sections` starts a new page, with its own size, orientation, margins, headers and footers.
+- **Headers and footers:** they take paragraphs. Page numbers go in a run's children, `PageNumber.CURRENT` and `PageNumber.TOTAL_PAGES`, mixed with plain strings as in the example.

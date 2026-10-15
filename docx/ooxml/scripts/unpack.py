@@ -1,32 +1,35 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["defusedxml"]
+# dependencies = ["defusedxml>=0.7"]
 # ///
-"""Unpack and format XML contents of Office files (.docx, .pptx, .xlsx)"""
+"""Unpack an Office file (.docx, .pptx, .xlsx) and pretty-print its XML for editing.
+
+Usage:
+    uv run unpack.py <office_file> <output_dir>
+
+XML is written as UTF-8, so text in any script can be edited literally.
+For .docx, also prints a fresh RSID to mark this editing session.
+"""
 
 import random
 import sys
-import defusedxml.minidom
 import zipfile
 from pathlib import Path
 
-# Get command line arguments
-assert len(sys.argv) == 3, "Usage: uv run unpack.py <office_file> <output_dir>"
-input_file, output_dir = sys.argv[1], sys.argv[2]
+import defusedxml.minidom
 
-# Extract and format
-output_path = Path(output_dir)
+if len(sys.argv) != 3:
+    sys.exit("Usage: uv run unpack.py <office_file> <output_dir>")
+input_file, output_path = Path(sys.argv[1]), Path(sys.argv[2])
+
 output_path.mkdir(parents=True, exist_ok=True)
-zipfile.ZipFile(input_file).extractall(output_path)
+with zipfile.ZipFile(input_file) as zf:
+    zf.extractall(output_path)
 
-# Pretty print all XML files
-xml_files = list(output_path.rglob("*.xml")) + list(output_path.rglob("*.rels"))
-for xml_file in xml_files:
-    content = xml_file.read_text(encoding="utf-8")
-    dom = defusedxml.minidom.parseString(content)
-    xml_file.write_bytes(dom.toprettyxml(indent="  ", encoding="ascii"))
+for xml_file in [*output_path.rglob("*.xml"), *output_path.rglob("*.rels")]:
+    dom = defusedxml.minidom.parseString(xml_file.read_bytes())
+    xml_file.write_bytes(dom.toprettyxml(indent="  ", encoding="UTF-8"))
 
-# For .docx files, suggest an RSID for tracked changes
-if input_file.endswith(".docx"):
-    suggested_rsid = "".join(random.choices("0123456789ABCDEF", k=8))
-    print(f"Suggested RSID for edit session: {suggested_rsid}")
+if input_file.suffix.lower() == ".docx":
+    rsid = "".join(random.choices("0123456789ABCDEF", k=8))
+    print(f"Suggested RSID for edit session: {rsid}")
