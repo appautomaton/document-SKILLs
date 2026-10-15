@@ -54,7 +54,7 @@ Links to other workbooks make it stop, because recalculating would overwrite the
 
 ## Pitfalls that fail silently
 
-- **Function prefixes.** Functions newer than Excel 2007 are stored with a prefix. Write `=_xlfn.XLOOKUP(…)`, `=_xlfn.TEXTJOIN(…)`, `=_xlfn.IFS(…)`, and `=_xlfn._xlws.FILTER(…)` and `=_xlfn._xlws.SORT(…)`. Without it, Excel and LibreOffice both show `#NAME?`. recalc catches these before they do damage.
+- **Function prefixes.** Functions newer than Excel 2007 are stored with a prefix. Write `=_xlfn.XLOOKUP(…)`, `=_xlfn.TEXTJOIN(…)`, `=_xlfn.IFS(…)`, and `=_xlfn._xlws.FILTER(…)` and `=_xlfn._xlws.SORT(…)`. Without it, Excel and LibreOffice both show `#NAME?`. recalc catches these before they do damage. LibreOffice older than 24.8 (`soffice --version`) lacks XLOOKUP, XMATCH, FILTER, SORT, SORTBY, UNIQUE, SEQUENCE and LET, so recalc flags them even when prefixed; the workbook still computes in Excel, so tell the user rather than rewriting the formulas.
 - **Inserting or deleting rows and columns.** `insert_rows`, `delete_rows`, `insert_cols` and `delete_cols` move cells but do not rewrite any formula that refers to them. `=SUM(B1:B4)` stays `=SUM(B1:B4)` after a row is inserted above it. Rewrite the affected formulas yourself, or lay out the sheet so nothing needs inserting.
 - **`data_only=True`** reads cached values. Saving a workbook opened that way replaces every formula with its last value, permanently.
 - **Dynamic arrays.** openpyxl cannot write spilling formulas. FILTER, SORT, UNIQUE and SEQUENCE land in one cell, and Excel prefixes them with `@`. Prefer formulas that return one value per cell.

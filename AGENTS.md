@@ -86,4 +86,4 @@ LibreOffice always runs through `soffice.py`, which gives every run a private, t
 uv run --with pytest --with openpyxl --with python-docx --with python-pptx --with Pillow --with pypdf --with reportlab pytest tests -q
 ```
 
-Every bug fix comes with a test that fails on the old code. python-docx is used only to build test fixtures.
+Every bug fix comes with a test that fails on the old code. python-docx is used only to build test fixtures. GitHub runs the same suite on Ubuntu for every pull request and every push to master (`.github/workflows/tests.yml`).
