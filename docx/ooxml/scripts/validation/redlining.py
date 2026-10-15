@@ -4,275 +4,181 @@ Validator for tracked changes in Word documents.
 
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+P, T, DEL_TEXT, R_PR = f"{W}p", f"{W}t", f"{W}delText", f"{W}rPr"
+INS, DEL, MOVE_TO, MOVE_FROM = f"{W}ins", f"{W}del", f"{W}moveTo", f"{W}moveFrom"
+AUTHOR, DATE = f"{W}author", f"{W}date"
+
 
 class RedliningValidator:
-    """Validator for tracked changes in Word documents."""
+    """Checks that every change to word/document.xml is a tracked change.
 
-    def __init__(self, unpacked_dir, original_docx, verbose=False):
+    Rejecting every tracked change must give back the original's text, so an
+    edit made without tracking shows up as a difference, whoever the author.
+    Insertions by other authors must also keep their text: rejecting all
+    changes removes them, which would otherwise hide a direct edit inside one.
+    When `author` is given, that author's own earlier insertions may be edited
+    directly, as Word allows.
+    """
+
+    def __init__(self, unpacked_dir, original_docx, verbose=False, author=None):
         self.unpacked_dir = Path(unpacked_dir)
         self.original_docx = Path(original_docx)
         self.verbose = verbose
-        self.namespaces = {
-            "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-        }
+        self.author = author
 
     def validate(self):
-        """Main validation method that returns True if valid, False otherwise."""
-        # Verify unpacked directory exists and has correct structure
         modified_file = self.unpacked_dir / "word" / "document.xml"
         if not modified_file.exists():
-            print(f"FAILED - Modified document.xml not found at {modified_file}")
+            print(f"FAILED - document.xml not found at {modified_file}")
             return False
 
-        # First, check if there are any tracked changes by Claude to validate
-        try:
-            import xml.etree.ElementTree as ET
-
-            tree = ET.parse(modified_file)
-            root = tree.getroot()
-
-            # Check for w:del or w:ins tags authored by Claude
-            del_elements = root.findall(".//w:del", self.namespaces)
-            ins_elements = root.findall(".//w:ins", self.namespaces)
-
-            # Filter to only include changes by Claude
-            claude_del_elements = [
-                elem
-                for elem in del_elements
-                if elem.get(f"{{{self.namespaces['w']}}}author") == "Claude"
-            ]
-            claude_ins_elements = [
-                elem
-                for elem in ins_elements
-                if elem.get(f"{{{self.namespaces['w']}}}author") == "Claude"
-            ]
-
-            # Redlining validation is only needed if tracked changes by Claude have been used.
-            if not claude_del_elements and not claude_ins_elements:
-                if self.verbose:
-                    print("PASSED - No tracked changes by Claude found.")
-                return True
-
-        except Exception:
-            # If we can't parse the XML, continue with full validation
-            pass
-
-        # Create temporary directory for unpacking original docx
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-
-            # Unpack original docx
             try:
-                with zipfile.ZipFile(self.original_docx, "r") as zip_ref:
-                    zip_ref.extractall(temp_path)
-            except Exception as e:
-                print(f"FAILED - Error unpacking original docx: {e}")
+                with zipfile.ZipFile(self.original_docx) as zf:
+                    zf.extract("word/document.xml", temp_dir)
+                original = ET.parse(Path(temp_dir) / "word" / "document.xml").getroot()
+                modified = ET.parse(modified_file).getroot()
+            except (KeyError, zipfile.BadZipFile, ET.ParseError) as e:
+                print(f"FAILED - Could not read the documents to compare: {e}")
                 return False
 
-            original_file = temp_path / "word" / "document.xml"
-            if not original_file.exists():
-                print(
-                    f"FAILED - Original document.xml not found in {self.original_docx}"
+        problems = []
+        original_text, modified_text = rejected_text(original), rejected_text(modified)
+        if original_text != modified_text:
+            problems.append(self._untracked_report(original_text, modified_text))
+        problems.extend(self._altered_insertions(original, modified))
+
+        if problems:
+            print("\n\n".join(problems))
+            return False
+        if self.verbose:
+            print("PASSED - All changes are tracked")
+        return True
+
+    def _altered_insertions(self, original, modified):
+        # Grouped by author and date rather than w:id: inserting text in the
+        # middle of someone's insertion legitimately splits it into two.
+        before, after = insertion_text(original), insertion_text(modified)
+        problems = []
+        for (author, date), text in before.items():
+            if not text or (self.author is not None and author == self.author):
+                continue
+            now = after.get((author, date), "")
+            if not now:
+                problems.append(
+                    f"FAILED - {author}'s tracked insertion \"{text[:80]}\" was removed. "
+                    "To reject it, nest a <w:del> inside their <w:ins>."
                 )
-                return False
-
-            # Parse both XML files using xml.etree.ElementTree for redlining validation
-            try:
-                import xml.etree.ElementTree as ET
-
-                modified_tree = ET.parse(modified_file)
-                modified_root = modified_tree.getroot()
-                original_tree = ET.parse(original_file)
-                original_root = original_tree.getroot()
-            except ET.ParseError as e:
-                print(f"FAILED - Error parsing XML files: {e}")
-                return False
-
-            # Remove Claude's tracked changes from both documents
-            self._remove_claude_tracked_changes(original_root)
-            self._remove_claude_tracked_changes(modified_root)
-
-            # Extract and compare text content
-            modified_text = self._extract_text_content(modified_root)
-            original_text = self._extract_text_content(original_root)
-
-            if modified_text != original_text:
-                # Show detailed character-level differences for each paragraph
-                error_message = self._generate_detailed_diff(
-                    original_text, modified_text
+            elif now != text:
+                problems.append(
+                    f"FAILED - {author}'s tracked insertion was edited directly: "
+                    f"\"{text[:80]}\" became \"{now[:80]}\". "
+                    "Mark changes inside it with a nested <w:del> instead."
                 )
-                print(error_message)
-                return False
+        return problems
 
-            if self.verbose:
-                print("PASSED - All changes by Claude are properly tracked")
-            return True
-
-    def _generate_detailed_diff(self, original_text, modified_text):
-        """Generate detailed word-level differences using git word diff."""
-        error_parts = [
-            "FAILED - Document text doesn't match after removing Claude's tracked changes",
+    def _untracked_report(self, original_text, modified_text):
+        lines = [
+            "FAILED - The document changed in ways that are not tracked: rejecting every "
+            "tracked change does not give back the original text.",
             "",
             "Likely causes:",
-            "  1. Modified text inside another author's <w:ins> or <w:del> tags",
-            "  2. Made edits without proper tracked changes",
-            "  3. Didn't nest <w:del> inside <w:ins> when deleting another's insertion",
-            "",
-            "For pre-redlined documents, use correct patterns:",
-            "  - To reject another's INSERTION: Nest <w:del> inside their <w:ins>",
-            "  - To restore another's DELETION: Add new <w:ins> AFTER their <w:del>",
+            "  1. Text was edited, added or removed without <w:ins>/<w:del>",
+            "  2. Text inside another author's <w:del> was changed",
             "",
         ]
+        diff = git_word_diff(original_text, modified_text)
+        lines += ["Differences (original text, all changes rejected):", diff] if diff else []
+        return "\n".join(lines)
 
-        # Show git word diff
-        git_diff = self._get_git_word_diff(original_text, modified_text)
-        if git_diff:
-            error_parts.extend(["Differences:", "============", git_diff])
-        else:
-            error_parts.append("Unable to generate word diff (git not available)")
 
-        return "\n".join(error_parts)
+def run_level(root, tag):
+    """Tracked-change containers around content, not paragraph-mark markers in w:rPr."""
+    parents = {child: parent for parent in root.iter() for child in parent}
+    return [e for e in root.iter(tag) if parents.get(e) is None or parents[e].tag != R_PR]
 
-    def _get_git_word_diff(self, original_text, modified_text):
-        """Generate word diff using git with character-level precision."""
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
 
-                # Create two files
-                original_file = temp_path / "original.txt"
-                modified_file = temp_path / "modified.txt"
+def insertion_text(root):
+    """{(author, date): text of all their insertions, in document order}.
 
-                original_file.write_text(original_text, encoding="utf-8")
-                modified_file.write_text(modified_text, encoding="utf-8")
+    Text deleted inside an insertion still counts, so rejecting part of
+    someone's insertion with a nested <w:del> leaves it unchanged.
+    """
+    groups = {}
+    for ins in run_level(root, INS):
+        key = (ins.get(AUTHOR), ins.get(DATE))
+        groups[key] = groups.get(key, "") + collect_text(ins, skip={INS, MOVE_TO}, nested_ok=True)
+    return groups
 
-                # Try character-level diff first for precise differences
-                result = subprocess.run(
-                    [
-                        "git",
-                        "diff",
-                        "--word-diff=plain",
-                        "--word-diff-regex=.",  # Character-by-character diff
-                        "-U0",  # Zero lines of context - show only changed lines
-                        "--no-index",
-                        str(original_file),
-                        str(modified_file),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
 
-                if result.stdout.strip():
-                    # Clean up the output - remove git diff header lines
-                    lines = result.stdout.split("\n")
-                    # Skip the header lines (diff --git, index, +++, ---, @@)
-                    content_lines = []
-                    in_content = False
-                    for line in lines:
-                        if line.startswith("@@"):
-                            in_content = True
-                            continue
-                        if in_content and line.strip():
-                            content_lines.append(line)
+def collect_text(element, skip, nested_ok=False):
+    """Visible text under `element`, leaving out subtrees tagged in `skip`.
 
-                    if content_lines:
-                        return "\n".join(content_lines)
+    Deleted text counts, so this is the text as it stands once deletions are
+    rejected. Paragraphs nested inside (text boxes) are left to their own turn
+    unless `nested_ok`.
+    """
+    parts = []
 
-                # Fallback to word-level diff if character-level is too verbose
-                result = subprocess.run(
-                    [
-                        "git",
-                        "diff",
-                        "--word-diff=plain",
-                        "-U0",  # Zero lines of context
-                        "--no-index",
-                        str(original_file),
-                        str(modified_file),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
+    def walk(node):
+        for child in node:
+            if child.tag in skip or (child.tag == P and not nested_ok):
+                continue
+            if child.tag in (T, DEL_TEXT) and child.text:
+                parts.append(child.text)
+            walk(child)
 
-                if result.stdout.strip():
-                    lines = result.stdout.split("\n")
-                    content_lines = []
-                    in_content = False
-                    for line in lines:
-                        if line.startswith("@@"):
-                            in_content = True
-                            continue
-                        if in_content and line.strip():
-                            content_lines.append(line)
-                    return "\n".join(content_lines)
+    walk(element)
+    return "".join(parts)
 
-        except (subprocess.CalledProcessError, FileNotFoundError, Exception):
-            # Git not available or other error, return None to use fallback
-            pass
 
+def rejected_text(root):
+    """The document's text with every tracked change rejected, one line per paragraph.
+
+    A paragraph whose mark is a tracked insertion merges with the next one, as
+    it does when that insertion is rejected. Empty paragraphs are dropped.
+    """
+    paragraphs, pending = [], ""
+    for p in root.iter(P):
+        pending += collect_text(p, skip={INS, MOVE_TO})
+        mark = p.find(f"{W}pPr/{R_PR}")
+        if mark is not None and mark.find(INS) is not None:
+            continue
+        if pending:
+            paragraphs.append(pending)
+        pending = ""
+    if pending:
+        paragraphs.append(pending)
+    return "\n".join(paragraphs)
+
+
+def git_word_diff(original_text, modified_text):
+    """Character-level diff of the two texts via git, or None if git is unavailable."""
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            a, b = Path(temp_dir) / "original.txt", Path(temp_dir) / "modified.txt"
+            a.write_text(original_text, encoding="utf-8")
+            b.write_text(modified_text, encoding="utf-8")
+            result = subprocess.run(
+                ["git", "diff", "--no-index", "--word-diff=plain", "--word-diff-regex=.",
+                 "-U0", str(a), str(b)],
+                capture_output=True,
+                text=True,
+            )
+    except (OSError, subprocess.SubprocessError):
         return None
-
-    def _remove_claude_tracked_changes(self, root):
-        """Remove tracked changes authored by Claude from the XML root."""
-        ins_tag = f"{{{self.namespaces['w']}}}ins"
-        del_tag = f"{{{self.namespaces['w']}}}del"
-        author_attr = f"{{{self.namespaces['w']}}}author"
-
-        # Remove w:ins elements
-        for parent in root.iter():
-            to_remove = []
-            for child in parent:
-                if child.tag == ins_tag and child.get(author_attr) == "Claude":
-                    to_remove.append(child)
-            for elem in to_remove:
-                parent.remove(elem)
-
-        # Unwrap content in w:del elements where author is "Claude"
-        deltext_tag = f"{{{self.namespaces['w']}}}delText"
-        t_tag = f"{{{self.namespaces['w']}}}t"
-
-        for parent in root.iter():
-            to_process = []
-            for child in parent:
-                if child.tag == del_tag and child.get(author_attr) == "Claude":
-                    to_process.append((child, list(parent).index(child)))
-
-            # Process in reverse order to maintain indices
-            for del_elem, del_index in reversed(to_process):
-                # Convert w:delText to w:t before moving
-                for elem in del_elem.iter():
-                    if elem.tag == deltext_tag:
-                        elem.tag = t_tag
-
-                # Move all children of w:del to its parent before removing w:del
-                for child in reversed(list(del_elem)):
-                    parent.insert(del_index, child)
-                parent.remove(del_elem)
-
-    def _extract_text_content(self, root):
-        """Extract text content from Word XML, preserving paragraph structure.
-
-        Empty paragraphs are skipped to avoid false positives when tracked
-        insertions add only structural elements without text content.
-        """
-        p_tag = f"{{{self.namespaces['w']}}}p"
-        t_tag = f"{{{self.namespaces['w']}}}t"
-
-        paragraphs = []
-        for p_elem in root.findall(f".//{p_tag}"):
-            # Get all text elements within this paragraph
-            text_parts = []
-            for t_elem in p_elem.findall(f".//{t_tag}"):
-                if t_elem.text:
-                    text_parts.append(t_elem.text)
-            paragraph_text = "".join(text_parts)
-            # Skip empty paragraphs - they don't affect content validation
-            if paragraph_text:
-                paragraphs.append(paragraph_text)
-
-        return "\n".join(paragraphs)
+    lines, in_hunk = [], False
+    for line in result.stdout.splitlines():
+        if line.startswith("@@"):
+            in_hunk = True
+        elif in_hunk and line.strip():
+            lines.append(line)
+    return "\n".join(lines) or None
 
 
 if __name__ == "__main__":

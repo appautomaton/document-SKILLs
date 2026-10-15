@@ -262,6 +262,8 @@ class DOCXSchemaValidator(BaseSchemaValidator):
 
     def compare_paragraph_counts(self):
         """Compare paragraph counts between original and new document."""
+        if self.original_file is None:
+            return
         original_count = self.count_paragraphs_in_original()
         new_count = self.count_paragraphs_in_unpacked()
 

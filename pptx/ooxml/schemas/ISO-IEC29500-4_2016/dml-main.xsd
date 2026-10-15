@@ -2758,8 +2758,10 @@
     </xsd:restriction>
   </xsd:simpleType>
   <xsd:complexType name="CT_TextBulletSizeFollowText"/>
+  <!-- Local correction: the published schema types val as ST_TextBulletSizePercent
+       only, rejecting the integer form (val="100000") that PowerPoint writes. -->
   <xsd:complexType name="CT_TextBulletSizePercent">
-    <xsd:attribute name="val" type="ST_TextBulletSizePercent" use="required"/>
+    <xsd:attribute name="val" type="ST_TextBulletSize" use="required"/>
   </xsd:complexType>
   <xsd:complexType name="CT_TextBulletSizePoint">
     <xsd:attribute name="val" type="ST_TextFontSize" use="required"/>

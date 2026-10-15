@@ -1,229 +1,224 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["python-pptx"]
+# dependencies = ["python-pptx>=1.0"]
 # ///
-"""
-Rearrange PowerPoint slides based on a sequence of indices.
+"""Build a presentation from a template's slides, in any order, with repeats.
 
 Usage:
     uv run rearrange.py template.pptx output.pptx 0,34,34,50,52
 
-This will create output.pptx using slides from template.pptx in the specified order.
-Slides can be repeated (e.g., 34 appears twice).
+Indices are 0-based. A repeated index duplicates that slide. Duplicates are
+complete: charts with their embedded workbooks, diagrams, embedded objects,
+hyperlinks, backgrounds, transitions and speaker notes all come along. Slides
+not listed are deleted.
 """
 
 import argparse
+import re
 import shutil
 import sys
 from copy import deepcopy
 from pathlib import Path
 
 from pptx import Presentation
+from pptx.opc.package import PartFactory
+from pptx.opc.packuri import PackURI
+
+R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+P_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+
+# Relationship kinds (last segment of the type URI) a duplicate points at
+# rather than copies: shared media, other slides, and its layout. Notes and
+# comments belong to one slide only; notes text is copied separately.
+SHARED = {"image", "media", "video", "audio", "slide", "slideLayout"}
+SKIPPED = {"notesSlide", "comments"}
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Rearrange PowerPoint slides based on a sequence of indices.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  uv run rearrange.py template.pptx output.pptx 0,34,34,50,52
-    Creates output.pptx using slides 0, 34 (twice), 50, and 52 from template.pptx
-
-  uv run rearrange.py template.pptx output.pptx 5,3,1,2,4
-    Creates output.pptx with slides reordered as specified
-
-Note: Slide indices are 0-based (first slide is 0, second is 1, etc.)
-        """,
+        epilog="Example: uv run rearrange.py template.pptx output.pptx 0,34,34,50,52",
     )
-
     parser.add_argument("template", help="Path to template PPTX file")
     parser.add_argument("output", help="Path for output PPTX file")
-    parser.add_argument(
-        "sequence", help="Comma-separated sequence of slide indices (0-based)"
-    )
-
+    parser.add_argument("sequence", help="Comma-separated slide indices (0-based)")
     args = parser.parse_args()
 
-    # Parse the slide sequence
     try:
-        slide_sequence = [int(x.strip()) for x in args.sequence.split(",")]
+        sequence = [int(x) for x in args.sequence.split(",")]
     except ValueError:
-        print(
-            "Error: Invalid sequence format. Use comma-separated integers (e.g., 0,34,34,50,52)"
-        )
-        sys.exit(1)
-
-    # Check template exists
-    template_path = Path(args.template)
-    if not template_path.exists():
-        print(f"Error: Template file not found: {args.template}")
-        sys.exit(1)
-
-    # Create output directory if needed
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
+        sys.exit("Error: the sequence must be comma-separated integers, e.g. 0,34,34,50,52")
+    template = Path(args.template)
+    if not template.exists():
+        sys.exit(f"Error: template not found: {template}")
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        rearrange_presentation(template_path, output_path, slide_sequence)
+        rearrange_presentation(template, output, sequence)
     except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error processing presentation: {e}")
-        sys.exit(1)
+        sys.exit(f"Error: {e}")
+
+
+class Cloner:
+    """Copies a slide's related parts into new parts of the same package."""
+
+    def __init__(self, package):
+        self.package = package
+        self.copies = {}
+        self.reserved = set()
+
+    def next_partname(self, partname):
+        prefix, ext = re.match(r"^(.*?)\d*(\.[^./]+)$", str(partname)).groups()
+        used = {str(p.partname) for p in self.package.iter_parts()} | self.reserved
+        n = 1
+        while f"{prefix}{n}{ext}" in used:
+            n += 1
+        self.reserved.add(f"{prefix}{n}{ext}")
+        return PackURI(f"{prefix}{n}{ext}")
+
+    def clone(self, part):
+        if part in self.copies:
+            return self.copies[part]
+        copy = PartFactory(self.next_partname(part.partname), part.content_type, self.package, part.blob)
+        self.copies[part] = copy
+        mapping = {rId: self.relate(copy, rel) for rId, rel in part.rels.items()}
+        if hasattr(copy, "_element"):
+            remap(copy._element, mapping)
+        return copy
+
+    def relate(self, source_part, rel):
+        """Relate `source_part` to rel's target, copying the target unless it is shared."""
+        if rel.is_external:
+            return source_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
+        kind = rel.reltype.rsplit("/", 1)[-1]
+        target = rel.target_part if kind in SHARED else self.clone(rel.target_part)
+        return source_part.relate_to(target, rel.reltype)
+
+
+def remap(element, mapping):
+    """Point every r:id-style attribute under `element` at its new relationship."""
+    for node in element.iter():
+        for attr, value in node.attrib.items():
+            if attr.startswith(R_NS) and value in mapping:
+                node.set(attr, mapping[value])
 
 
 def duplicate_slide(pres, index):
-    """Duplicate a slide in the presentation."""
     source = pres.slides[index]
-
-    # Use source's layout to preserve formatting
     new_slide = pres.slides.add_slide(source.slide_layout)
+    cloner = Cloner(pres.part.package)
+    mapping = {}
 
-    # Collect all image and media relationships from the source slide
-    image_rels = {}
-    for rel_id, rel in source.part.rels.items():
-        if "image" in rel.reltype or "media" in rel.reltype:
-            image_rels[rel_id] = rel
+    def rel_ids(element):
+        for node in element.iter():
+            for attr, value in node.attrib.items():
+                if attr.startswith(R_NS) and value in source.part.rels and value not in mapping:
+                    rel = source.part.rels[value]
+                    if rel.reltype.rsplit("/", 1)[-1] not in SKIPPED:
+                        mapping[value] = cloner.relate(new_slide.part, rel)
 
-    # CRITICAL: Clear placeholder shapes to avoid duplicates
-    for shape in new_slide.shapes:
-        sp = shape.element
-        sp.getparent().remove(sp)
+    # Replace the layout's empty placeholders with copies of the source's shapes.
+    tree = new_slide.shapes._spTree
+    for shape in list(new_slide.shapes):
+        tree.remove(shape.element)
+    framing = {f"{P_NS}nvGrpSpPr", f"{P_NS}grpSpPr", f"{P_NS}extLst"}
+    for child in source.shapes._spTree:
+        if child.tag in framing:
+            continue
+        copy = deepcopy(child)
+        rel_ids(copy)
+        remap(copy, mapping)
+        tree.insert_element_before(copy, "p:extLst")
 
-    # Copy all shapes from source
-    for shape in source.shapes:
-        el = shape.element
-        new_el = deepcopy(el)
-        new_slide.shapes._spTree.insert_element_before(new_el, "p:extLst")
+    # Background, transition and animation timing live outside the shape tree.
+    src, dst = source.element, new_slide.element
+    background = src.find(f"{P_NS}cSld/{P_NS}bg")
+    if background is not None:
+        copy = deepcopy(background)
+        rel_ids(copy)
+        remap(copy, mapping)
+        dst.find(f"{P_NS}cSld").insert(0, copy)
+    anchor = dst.find(f"{P_NS}clrMapOvr")
+    for tag in ("transition", "timing"):
+        node = src.find(f"{P_NS}{tag}")
+        if node is not None and anchor is not None:
+            copy = deepcopy(node)
+            remap(copy, mapping)
+            anchor.addnext(copy)
+            anchor = copy
 
-        # Handle picture shapes - need to update the blip reference
-        # Look for all blip elements (they can be in pic or other contexts)
-        # Using the element's own xpath method without namespaces argument
-        blips = new_el.xpath(".//a:blip[@r:embed]")
-        for blip in blips:
-            old_rId = blip.get(
-                "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-            )
-            if old_rId in image_rels:
-                # Create a new relationship in the destination slide for this image
-                old_rel = image_rels[old_rId]
-                # get_or_add returns the rId directly, or adds and returns new rId
-                new_rId = new_slide.part.rels.get_or_add(
-                    old_rel.reltype, old_rel._target
-                )
-                # Update the blip's embed reference to use the new relationship ID
-                blip.set(
-                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed",
-                    new_rId,
-                )
-
-    # Copy any additional image/media relationships that might be referenced elsewhere
-    for rel_id, rel in image_rels.items():
-        try:
-            new_slide.part.rels.get_or_add(rel.reltype, rel._target)
-        except Exception:
-            pass  # Relationship might already exist
-
+    if source.has_notes_slide and source.notes_slide.notes_text_frame is not None:
+        text = source.notes_slide.notes_text_frame.text
+        if text:
+            new_slide.notes_slide.notes_text_frame.text = text
     return new_slide
 
 
 def delete_slide(pres, index):
-    """Delete a slide from the presentation."""
     rId = pres.slides._sldIdLst[index].rId
     pres.part.drop_rel(rId)
     del pres.slides._sldIdLst[index]
 
 
 def reorder_slides(pres, slide_index, target_index):
-    """Move a slide from one position to another."""
     slides = pres.slides._sldIdLst
-
-    # Remove slide element from current position
     slide_element = slides[slide_index]
     slides.remove(slide_element)
-
-    # Insert at target position
     slides.insert(target_index, slide_element)
 
 
 def rearrange_presentation(template_path, output_path, slide_sequence):
-    """
-    Create a new presentation with slides from template in specified order.
-
-    Args:
-        template_path: Path to template PPTX file
-        output_path: Path for output PPTX file
-        slide_sequence: List of slide indices (0-based) to include
-    """
-    # Copy template to preserve dimensions and theme
     if template_path != output_path:
         shutil.copy2(template_path, output_path)
-        prs = Presentation(output_path)
-    else:
-        prs = Presentation(template_path)
+    prs = Presentation(output_path)
 
-    total_slides = len(prs.slides)
-
-    # Validate indices
+    total = len(prs.slides)
     for idx in slide_sequence:
-        if idx < 0 or idx >= total_slides:
-            raise ValueError(f"Slide index {idx} out of range (0-{total_slides - 1})")
+        if idx < 0 or idx >= total:
+            raise ValueError(f"Slide index {idx} out of range (0-{total - 1})")
 
-    # Track original slides and their duplicates
-    slide_map = []  # List of actual slide indices for final presentation
-    duplicated = {}  # Track duplicates: original_idx -> [duplicate_indices]
-
-    # Step 1: DUPLICATE repeated slides
+    # Step 1: duplicate repeated slides. slide_map holds the current position
+    # of the slide for each place in the final sequence.
+    slide_map = []
+    duplicated = {}
     print(f"Processing {len(slide_sequence)} slides from template...")
-    for i, template_idx in enumerate(slide_sequence):
-        if template_idx in duplicated and duplicated[template_idx]:
-            # Already duplicated this slide, use the duplicate
-            slide_map.append(duplicated[template_idx].pop(0))
-            print(f"  [{i}] Using duplicate of slide {template_idx}")
-        elif slide_sequence.count(template_idx) > 1 and template_idx not in duplicated:
-            # First occurrence of a repeated slide - create duplicates
-            slide_map.append(template_idx)
-            duplicates = []
-            count = slide_sequence.count(template_idx) - 1
-            print(
-                f"  [{i}] Using original slide {template_idx}, creating {count} duplicate(s)"
-            )
+    for i, idx in enumerate(slide_sequence):
+        if duplicated.get(idx):
+            slide_map.append(duplicated[idx].pop(0))
+            print(f"  [{i}] Using duplicate of slide {idx}")
+        elif slide_sequence.count(idx) > 1 and idx not in duplicated:
+            slide_map.append(idx)
+            count = slide_sequence.count(idx) - 1
+            print(f"  [{i}] Using original slide {idx}, creating {count} duplicate(s)")
+            duplicated[idx] = []
             for _ in range(count):
-                duplicate_slide(prs, template_idx)
-                duplicates.append(len(prs.slides) - 1)
-            duplicated[template_idx] = duplicates
+                duplicate_slide(prs, idx)
+                duplicated[idx].append(len(prs.slides) - 1)
         else:
-            # Unique slide or first occurrence already handled, use original
-            slide_map.append(template_idx)
-            print(f"  [{i}] Using original slide {template_idx}")
+            slide_map.append(idx)
+            print(f"  [{i}] Using original slide {idx}")
 
-    # Step 2: DELETE unwanted slides (work backwards)
-    slides_to_keep = set(slide_map)
-    print(f"\nDeleting {len(prs.slides) - len(slides_to_keep)} unused slides...")
+    # Step 2: delete unused slides, last first.
+    keep = set(slide_map)
+    print(f"\nDeleting {len(prs.slides) - len(keep)} unused slides...")
     for i in range(len(prs.slides) - 1, -1, -1):
-        if i not in slides_to_keep:
+        if i not in keep:
             delete_slide(prs, i)
-            # Update slide_map indices after deletion
             slide_map = [idx - 1 if idx > i else idx for idx in slide_map]
 
-    # Step 3: REORDER to final sequence
+    # Step 3: move each slide into its final position.
     print(f"Reordering {len(slide_map)} slides to final sequence...")
-    for target_pos in range(len(slide_map)):
-        # Find which slide should be at target_pos
-        current_pos = slide_map[target_pos]
-        if current_pos != target_pos:
-            reorder_slides(prs, current_pos, target_pos)
-            # Update slide_map: the move shifts other slides
+    for target in range(len(slide_map)):
+        current = slide_map[target]
+        if current != target:
+            reorder_slides(prs, current, target)
             for i in range(len(slide_map)):
-                if slide_map[i] > current_pos and slide_map[i] <= target_pos:
+                if current < slide_map[i] <= target:
                     slide_map[i] -= 1
-                elif slide_map[i] < current_pos and slide_map[i] >= target_pos:
+                elif target <= slide_map[i] < current:
                     slide_map[i] += 1
-            slide_map[target_pos] = target_pos
+            slide_map[target] = target
 
-    # Save the presentation
     prs.save(output_path)
     print(f"\nSaved rearranged presentation to: {output_path}")
     print(f"Final presentation has {len(prs.slides)} slides")

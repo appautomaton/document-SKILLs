@@ -1,16 +1,23 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["lxml"]
+# dependencies = ["lxml>=5"]
 # ///
-"""
-Command line tool to validate Office document XML files against XSD schemas and tracked changes.
+"""Validate an Office document's XML against the OOXML schemas.
 
 Usage:
-    uv run validate.py <dir> --original <original_file>
+    uv run validate.py <unpacked_dir | file.docx | file.pptx> [--original FILE] [--author NAME]
+
+With --original, only errors the edit introduced are reported, and for .docx
+every change must be a tracked change (see validation/redlining.py). Without
+it, every schema error counts, which suits documents generated from scratch.
+--author names whose earlier tracked insertions may be edited directly.
+Exit status 0 when valid, 1 otherwise.
 """
 
 import argparse
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
 from validation import DOCXSchemaValidator, PPTXSchemaValidator, RedliningValidator
@@ -18,53 +25,37 @@ from validation import DOCXSchemaValidator, PPTXSchemaValidator, RedliningValida
 
 def main():
     parser = argparse.ArgumentParser(description="Validate Office document XML files")
-    parser.add_argument(
-        "unpacked_dir",
-        help="Path to unpacked Office document directory",
-    )
-    parser.add_argument(
-        "--original",
-        required=True,
-        help="Path to original file (.docx/.pptx/.xlsx)",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Enable verbose output",
-    )
+    parser.add_argument("target", type=Path, help="Unpacked directory, or a .docx/.pptx file")
+    parser.add_argument("--original", type=Path, help="The file before editing")
+    parser.add_argument("--author", help="Author of this session's tracked changes (.docx)")
+    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
-    # Validate paths
-    unpacked_dir = Path(args.unpacked_dir)
-    original_file = Path(args.original)
-    file_extension = original_file.suffix.lower()
-    assert unpacked_dir.is_dir(), f"Error: {unpacked_dir} is not a directory"
-    assert original_file.is_file(), f"Error: {original_file} is not a file"
-    assert file_extension in [".docx", ".pptx", ".xlsx"], (
-        f"Error: {original_file} must be a .docx, .pptx, or .xlsx file"
-    )
+    reference = args.original or args.target
+    kind = reference.suffix.lower()
+    if kind not in (".docx", ".pptx"):
+        sys.exit(f"Error: validation supports .docx and .pptx, not {kind or args.target}")
+    if args.original and not args.original.is_file():
+        sys.exit(f"Error: {args.original} is not a file")
 
-    # Run validations
-    match file_extension:
-        case ".docx":
-            validators = [DOCXSchemaValidator, RedliningValidator]
-        case ".pptx":
-            validators = [PPTXSchemaValidator]
-        case _:
-            print(f"Error: Validation not supported for file type {file_extension}")
-            sys.exit(1)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        unpacked = args.target
+        if args.target.is_file():
+            unpacked = Path(temp_dir)
+            with zipfile.ZipFile(args.target) as zf:
+                zf.extractall(unpacked)
+        elif not args.target.is_dir():
+            sys.exit(f"Error: {args.target} does not exist")
 
-    # Run validators
-    success = True
-    for V in validators:
-        validator = V(unpacked_dir, original_file, verbose=args.verbose)
-        if not validator.validate():
-            success = False
+        schema = DOCXSchemaValidator if kind == ".docx" else PPTXSchemaValidator
+        validators = [schema(unpacked, args.original, verbose=args.verbose)]
+        if kind == ".docx" and args.original:
+            validators.append(
+                RedliningValidator(unpacked, args.original, args.verbose, author=args.author)
+            )
+        success = all([v.validate() for v in validators])
 
-    if success:
-        print("All validations PASSED!")
-
+    print("All validations PASSED!" if success else "Validation FAILED")
     sys.exit(0 if success else 1)
 
 

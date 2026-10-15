@@ -1,614 +1,290 @@
-# Office Open XML Technical Reference
+# Editing Word documents: the Document library and OOXML
 
-**Important: Read this entire document before starting.** This document covers:
-- [Technical Guidelines](#technical-guidelines) - Schema compliance rules and validation requirements
-- [Document Content Patterns](#document-content-patterns) - XML patterns for headings, lists, tables, formatting, etc.
-- [Document Library (Python)](#document-library-python) - Recommended approach for OOXML manipulation with automatic infrastructure setup
-- [Tracked Changes (Redlining)](#tracked-changes-redlining) - XML patterns for implementing tracked changes
+This file covers editing an unpacked `.docx`: the Python `Document` library for tracked changes and comments, and the XML patterns underneath it.
 
-## Technical Guidelines
+## Running a script with the library
 
-### Schema Compliance
-- **Element ordering in `<w:pPr>`**: `<w:pStyle>`, `<w:numPr>`, `<w:spacing>`, `<w:ind>`, `<w:jc>`
-- **Whitespace**: Add `xml:space='preserve'` to `<w:t>` elements with leading/trailing spaces
-- **Unicode**: Escape characters in ASCII content: `"` becomes `&#8220;`
-  - **Character encoding reference**: Curly quotes `""` become `&#8220;&#8221;`, apostrophe `'` becomes `&#8217;`, em-dash `—` becomes `&#8212;`
-- **Tracked changes**: Use `<w:del>` and `<w:ins>` tags with `w:author="Claude"` outside `<w:r>` elements
-  - **Critical**: `<w:ins>` closes with `</w:ins>`, `<w:del>` closes with `</w:del>` - never mix
-  - **RSIDs must be 8-digit hex**: Use values like `00AB1234` (only 0-9, A-F characters)
-  - **trackRevisions placement**: Add `<w:trackRevisions/>` after `<w:proofState>` in settings.xml
-- **Images**: Add to `word/media/`, reference in `document.xml`, set dimensions to prevent overflow
+Your script puts the skill directory first on `sys.path`, so the import cannot collide with a `scripts` package in the user's project. It declares its dependencies in a PEP 723 header and runs with `uv run`:
 
-## Document Content Patterns
+```python
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["defusedxml>=0.7", "lxml>=5"]
+# ///
+import sys
+sys.path.insert(0, "<skill>")  # absolute path of the docx skill directory
+from scripts.document import Document, DocxXMLEditor
 
-### Basic Structure
-```xml
-<w:p>
-  <w:r><w:t>Text content</w:t></w:r>
-</w:p>
+doc = Document("unpacked", author="Claude", initials="C")
 ```
 
-### Headings and Styles
-```xml
-<w:p>
-  <w:pPr>
-    <w:pStyle w:val="Title"/>
-    <w:jc w:val="center"/>
-  </w:pPr>
-  <w:r><w:t>Document Title</w:t></w:r>
-</w:p>
-
-<w:p>
-  <w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
-  <w:r><w:t>Section Heading</w:t></w:r>
-</w:p>
+```bash
+uv run edit.py
 ```
 
-### Text Formatting
+`Document` options:
+
+- `author` and `initials`: name the reviewer on every change and comment. They default to "Claude"/"C"; use the name the user wants reviewers to see.
+- `rsid`: set it to the value `unpack.py` printed, so all edits in the session share one revision ID. If omitted, one is generated.
+- `track_revisions=True`: turns on Track Changes in the file, so the user's own later edits are tracked too.
+
+The library edits a temporary copy of the unpacked directory. `doc.save()` validates the result and copies it back (or to `doc.save("other-dir")`).
+
+## Tracked changes
+
+### Replacing text: `tracked_replace`
+
+Use this for almost every edit. It finds the text in a paragraph even when Word has split it across several runs. Formatting changes, proofing marks, and the script boundaries in Chinese or Japanese text all split runs. It then marks only the words that differ:
+
+```python
+body = doc["word/document.xml"]
+body.tracked_replace("within 30 days", "within 45 days")      # marks 30 -> 45 only
+body.tracked_replace("期限为30天", "期限为45天")                 # CJK is compared per character
+body.tracked_replace("Acme Corp", "Acme Inc.", replace_all=True)
+body.tracked_replace("the Seller", "the Vendor", scope=body.get_node(tag="w:p", contains="Section 4.2"))
+body.tracked_replace(", without limitation,", "")              # deletion
+```
+
+- `old` must lie within one paragraph and match its visible text exactly. Deleted text is not searched; tabs match `"\t"` and line breaks `"\n"`.
+- If `old` occurs more than once, it raises and shows where. Narrow the search with `scope=` (any element: a paragraph, a table, a cell), or pass `replace_all=True`.
+- Unchanged text keeps its original runs, formatting and RSIDs. Inserted text takes the formatting of the text it replaces.
+- It returns the new `w:del`/`w:ins` elements, ready for `doc.add_comment(start=..., end=...)`.
+- Text inside another author's insertion can be deleted, which nests your deletion inside their insertion. It can be replaced only when the change reaches the start or end of that insertion. For a change in its middle, reject the whole insertion with `revert_insertion()` and insert the corrected text.
+
+### Deleting whole runs or paragraphs
+
+```python
+body.suggest_deletion(body.get_node(tag="w:r", contains="text to delete"))
+body.suggest_deletion(body.get_node(tag="w:p", contains="paragraph to delete"))
+```
+
+Deleting a paragraph also marks its paragraph mark deleted. Accepting the change then removes the paragraph instead of leaving an empty line. The last paragraph of the body, a cell or a text box keeps its mark, as in Word.
+
+### Inserting paragraphs
+
+```python
+target = body.get_node(tag="w:p", contains="existing list item")
+pPr = tags[0].toxml() if (tags := target.getElementsByTagName("w:pPr")) else ""
+body.insert_after(target, DocxXMLEditor.suggest_paragraph(f"<w:p>{pPr}<w:r><w:t>New item</w:t></w:r></w:p>"))
+```
+
+`suggest_paragraph` wraps the runs in `<w:ins>` and marks the paragraph mark inserted. Reusing the neighbour's `w:pPr` keeps the list numbering and style.
+
+### Other authors' changes
+
+```python
+ins = body.get_node(tag="w:ins", attrs={"w:id": "5"})
+body.revert_insertion(ins)        # reject their insertion: nests a <w:del> inside it
+dele = body.get_node(tag="w:del", attrs={"w:id": "3"})
+body.revert_deletion(dele)        # reject their deletion: re-inserts the text after it
+```
+
+Both also accept a paragraph or other container, which handles every insertion or deletion inside it.
+
+### Accepting or rejecting everything
+
+```python
+doc.accept_all_changes()   # or doc.reject_all_changes()
+```
+
+These cover the body, headers, footers, footnotes, endnotes and comments, like Word's Accept All and Reject All. That includes paragraph marks, moves, table rows and formatting changes. Call them before your own edits. Edits made earlier must already be tracked, and later ones are checked against the resolved document.
+
+### Writing the XML yourself
+
+When no method fits, replace a node with explicit `<w:del>`/`<w:ins>` markup. The library fills in `w:id`, `w:author`, `w:date` and RSIDs on new elements:
+
+```python
+node = body.get_node(tag="w:r", contains="The report is monthly")
+rpr = tags[0].toxml() if (tags := node.getElementsByTagName("w:rPr")) else ""
+body.replace_node(node,
+    f'<w:r>{rpr}<w:t xml:space="preserve">The report is </w:t></w:r>'
+    f'<w:del><w:r>{rpr}<w:delText>monthly</w:delText></w:r></w:del>'
+    f'<w:ins><w:r>{rpr}<w:t>quarterly</w:t></w:r></w:ins>')
+```
+
+The rules every tracked change must follow:
+
+- `<w:ins>` and `<w:del>` wrap whole `<w:r>` elements at paragraph level, never the inside of a run.
+- Deleted text goes in `<w:delText>`, not `<w:t>`.
+- Mark only what changes. Keep unchanged text in its original run, with its attributes.
+- Never edit inside another author's `<w:ins>` or `<w:del>` directly. To remove part of their insertion, nest your `<w:del>` inside it. To restore their deletion, add your `<w:ins>` after it.
+
 ```xml
-<!-- Bold -->
-<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>Bold</w:t></w:r>
-<!-- Italic -->
-<w:r><w:rPr><w:i/><w:iCs/></w:rPr><w:t>Italic</w:t></w:r>
-<!-- Underline -->
-<w:r><w:rPr><w:u w:val="single"/></w:rPr><w:t>Underlined</w:t></w:r>
-<!-- Highlight -->
-<w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>Highlighted</w:t></w:r>
+<!-- Rejecting part of Jane's insertion, then adding a replacement after it -->
+<w:ins w:id="16" w:author="Jane Smith" w:date="2026-01-15T10:00:00Z">
+  <w:r><w:t xml:space="preserve">in silence, </w:t></w:r>
+  <w:del w:author="Claude"><w:r><w:delText>safe and sound</w:delText></w:r></w:del>
+</w:ins>
+<w:ins w:author="Claude"><w:r><w:t>soft and unbound</w:t></w:r></w:ins>
+
+<!-- Restoring Jane's deletion -->
+<w:del w:id="50" w:author="Jane Smith" w:date="2026-01-15T10:00:00Z">
+  <w:r><w:delText>within 30 days</w:delText></w:r>
+</w:del>
+<w:ins w:author="Claude"><w:r><w:t>within 30 days</w:t></w:r></w:ins>
+```
+
+### What `save()` checks
+
+`doc.save()` raises if the result is invalid. It checks two things:
+
+- **Schema:** the XML must match the OOXML schema, ignoring problems the original file already had.
+- **Tracking:** rejecting every tracked change must give back the original text, so an edit made without tracking shows up as a difference, whoever the author. Other authors' insertions must also keep their text.
+
+The error prints the differing text. The usual causes are editing text directly instead of through `<w:ins>`/`<w:del>`, and editing inside someone else's change. For a document of your own that needs no review, `save(require_tracking=False)` keeps the schema check and drops the tracking one. `save(validate=False)` skips both; use it only to inspect a broken state, never for a deliverable.
+
+## Comments
+
+```python
+para = body.get_node(tag="w:p", contains="paragraph text")
+cid = doc.add_comment(start=para, end=para, text="Please confirm this date.")
+doc.reply_to_comment(parent_comment_id=cid, text="Confirmed with finance.")
+
+changes = body.tracked_replace("30 days", "45 days")
+doc.add_comment(start=changes[0], end=changes[-1], text="Extended per the March amendment.")
+```
+
+`start` and `end` can be paragraphs, runs or tracked-change elements. The library creates or updates `comments.xml` and its companion parts, and their relationships and content types. That works on documents from Word, LibreOffice, docx-js and pandoc alike.
+
+## Finding nodes
+
+```python
+body.get_node(tag="w:p", contains="specific text")             # text within the element
+body.get_node(tag="w:del", attrs={"w:id": "1"})                 # attribute values
+body.get_node(tag="w:p", line_number=42)                        # line where the tag opens
+body.get_node(tag="w:r", contains="Section", line_number=range(2400, 2500))
+```
+
+`get_node` must match exactly one element. `contains` sees the text of a single element, so text split across runs is found with `tag="w:p"`, or replaced directly with `tracked_replace`. Line numbers refer to the file as it was unpacked, so grep `word/document.xml` again after every saved edit.
+
+`doc["word/comments.xml"]`, `doc["word/header1.xml"]` and so on give editors for other parts. Each editor's `.dom` is a minidom document for anything the methods don't cover.
+
+## Inserting an image
+
+```python
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["defusedxml>=0.7", "lxml>=5", "Pillow>=10"]
+# ///
+import shutil, sys
+sys.path.insert(0, "<skill>")
+from PIL import Image
+from scripts.document import Document, DocxXMLEditor
+
+doc = Document("unpacked")
+body = doc["word/document.xml"]
+
+# Copy the image into the working copy the library edits, under an unused name
+media = doc.unpacked_path / "word" / "media"
+media.mkdir(exist_ok=True)
+n = 1
+while (media / f"image{n}.png").exists():
+    n += 1
+shutil.copy("chart.png", media / f"image{n}.png")
+
+# Full usable width (6.5 in on Letter with 1 in margins), keeping the aspect ratio
+w, h = Image.open("chart.png").size
+cx = int(6.5 * 914400)
+cy = cx * h // w
+
+rels = doc["word/_rels/document.xml.rels"]
+rid = rels.get_next_rid()
+rels.append_to(rels.dom.documentElement,
+    f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image{n}.png"/>')
+types = doc["[Content_Types].xml"]
+if not any(d.getAttribute("Extension").lower() == "png" for d in types.dom.getElementsByTagName("Default")):
+    types.append_to(types.dom.documentElement, '<Default Extension="png" ContentType="image/png"/>')
+
+# Drawing ids must be unique across the document
+pic_id = 1 + max((int(e.getAttribute("id")) for e in body.dom.getElementsByTagName("wp:docPr")), default=0)
+
+anchor = body.get_node(tag="w:p", contains="Second paragraph")
+body.insert_after(anchor, DocxXMLEditor.suggest_paragraph(f'''<w:p><w:r><w:drawing>
+  <wp:inline distT="0" distB="0" distL="0" distR="0">
+    <wp:extent cx="{cx}" cy="{cy}"/>
+    <wp:docPr id="{pic_id}" name="Picture {pic_id}"/>
+    <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+      <pic:pic>
+        <pic:nvPicPr><pic:cNvPr id="{pic_id}" name="image{n}.png"/><pic:cNvPicPr/></pic:nvPicPr>
+        <pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
+        <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
+      </pic:pic>
+    </a:graphicData></a:graphic>
+  </wp:inline>
+</w:drawing></w:r></w:p>'''))
+doc.save()
+```
+
+`suggest_paragraph` makes the insertion a tracked change. Drop it to insert the image silently, if the user doesn't want it reviewed. On A4 with 1-inch margins, the usable width is 6.27 inches.
+
+## XML reference
+
+### Schema rules that bite
+
+- **`<w:pPr>`:** children follow a fixed order, starting `pStyle`, `keepNext`, `keepLines`, `pageBreakBefore`, `numPr`, … `spacing`, `ind`, … `jc`, … and ending `rPr`, `sectPr`, `pPrChange`.
+- **Whitespace:** a `<w:t>` whose text starts or ends with a space needs `xml:space="preserve"`, or the space is dropped.
+- **Text encoding:** `unpack.py` writes UTF-8, so curly quotes, dashes and CJK text can be typed literally. Entities such as `&#8220;` (“) also work. In `contains=` searches, both forms find the same text.
+- **Settings:** turn on Track Changes with `Document(..., track_revisions=True)`, which puts `<w:trackRevisions/>` at its schema position in `settings.xml`: after `w:proofState`, `w:attachedTemplate`, `w:documentType`, `w:mailMerge` and `w:revisionView`, whichever are present.
+- **IDs and RSIDs:** RSIDs are 8 hex digits. Tracked-change `w:id` values must be unique; the library assigns them.
+
+### Paragraphs and runs
+
+```xml
+<w:p>
+  <w:pPr><w:pStyle w:val="Heading2"/><w:jc w:val="center"/></w:pPr>
+  <w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>Bold heading text</w:t></w:r>
+</w:p>
+<!-- run formatting: <w:i/> italic, <w:u w:val="single"/> underline,
+     <w:highlight w:val="yellow"/>, <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/> -->
+<w:p><w:r><w:br w:type="page"/></w:r></w:p>   <!-- page break -->
 ```
 
 ### Lists
+
 ```xml
-<!-- Numbered list -->
 <w:p>
   <w:pPr>
     <w:pStyle w:val="ListParagraph"/>
     <w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>
-    <w:spacing w:before="240"/>
   </w:pPr>
   <w:r><w:t>First item</w:t></w:r>
 </w:p>
-
-<!-- Restart numbered list at 1 - use different numId -->
-<w:p>
-  <w:pPr>
-    <w:pStyle w:val="ListParagraph"/>
-    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>
-    <w:spacing w:before="240"/>
-  </w:pPr>
-  <w:r><w:t>New list item 1</w:t></w:r>
-</w:p>
-
-<!-- Bullet list (level 2) -->
-<w:p>
-  <w:pPr>
-    <w:pStyle w:val="ListParagraph"/>
-    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr>
-    <w:spacing w:before="240"/>
-    <w:ind w:left="900"/>
-  </w:pPr>
-  <w:r><w:t>Bullet item</w:t></w:r>
-</w:p>
 ```
 
+`w:ilvl` sets the nesting level. A different `w:numId`, defined in `numbering.xml`, starts a separate list. Copy the `w:pPr` of an existing item to continue its list.
+
 ### Tables
+
 ```xml
 <w:tbl>
-  <w:tblPr>
-    <w:tblStyle w:val="TableGrid"/>
-    <w:tblW w:w="0" w:type="auto"/>
-  </w:tblPr>
-  <w:tblGrid>
-    <w:gridCol w:w="4675"/><w:gridCol w:w="4675"/>
-  </w:tblGrid>
+  <w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/></w:tblPr>
+  <w:tblGrid><w:gridCol w:w="4680"/><w:gridCol w:w="4680"/></w:tblGrid>
   <w:tr>
-    <w:tc>
-      <w:tcPr><w:tcW w:w="4675" w:type="dxa"/></w:tcPr>
-      <w:p><w:r><w:t>Cell 1</w:t></w:r></w:p>
-    </w:tc>
-    <w:tc>
-      <w:tcPr><w:tcW w:w="4675" w:type="dxa"/></w:tcPr>
-      <w:p><w:r><w:t>Cell 2</w:t></w:r></w:p>
-    </w:tc>
+    <w:tc><w:tcPr><w:tcW w:w="4680" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Cell 1</w:t></w:r></w:p></w:tc>
+    <w:tc><w:tcPr><w:tcW w:w="4680" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Cell 2</w:t></w:r></w:p></w:tc>
   </w:tr>
 </w:tbl>
 ```
 
-### Layout
-```xml
-<!-- Page break before new section (common pattern) -->
-<w:p>
-  <w:r>
-    <w:br w:type="page"/>
-  </w:r>
-</w:p>
-<w:p>
-  <w:pPr>
-    <w:pStyle w:val="Heading1"/>
-  </w:pPr>
-  <w:r>
-    <w:t>New Section Title</w:t>
-  </w:r>
-</w:p>
-
-<!-- Centered paragraph -->
-<w:p>
-  <w:pPr>
-    <w:spacing w:before="240" w:after="0"/>
-    <w:jc w:val="center"/>
-  </w:pPr>
-  <w:r><w:t>Centered text</w:t></w:r>
-</w:p>
-
-<!-- Font change - paragraph level (applies to all runs) -->
-<w:p>
-  <w:pPr>
-    <w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/></w:rPr>
-  </w:pPr>
-  <w:r><w:t>Monospace text</w:t></w:r>
-</w:p>
-
-<!-- Font change - run level (specific to this text) -->
-<w:p>
-  <w:r>
-    <w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/></w:rPr>
-    <w:t>This text is Courier New</w:t>
-  </w:r>
-  <w:r><w:t> and this text uses default font</w:t></w:r>
-</w:p>
-```
-
-## File Updates
-
-When adding content, update these files:
-
-**`word/_rels/document.xml.rels`:**
-```xml
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
-<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
-```
-
-**`[Content_Types].xml`:**
-```xml
-<Default Extension="png" ContentType="image/png"/>
-<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-```
-
-### Images
-**CRITICAL**: Calculate dimensions to prevent page overflow and maintain aspect ratio.
+### Hyperlinks and bookmarks
 
 ```xml
-<!-- Minimal required structure -->
-<w:p>
-  <w:r>
-    <w:drawing>
-      <wp:inline>
-        <wp:extent cx="2743200" cy="1828800"/>
-        <wp:docPr id="1" name="Picture 1"/>
-        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-            <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
-              <pic:nvPicPr>
-                <pic:cNvPr id="0" name="image1.png"/>
-                <pic:cNvPicPr/>
-              </pic:nvPicPr>
-              <pic:blipFill>
-                <a:blip r:embed="rId5"/>
-                <!-- Add for stretch fill with aspect ratio preservation -->
-                <a:stretch>
-                  <a:fillRect/>
-                </a:stretch>
-              </pic:blipFill>
-              <pic:spPr>
-                <a:xfrm>
-                  <a:ext cx="2743200" cy="1828800"/>
-                </a:xfrm>
-                <a:prstGeom prst="rect"/>
-              </pic:spPr>
-            </pic:pic>
-          </a:graphicData>
-        </a:graphic>
-      </wp:inline>
-    </w:drawing>
-  </w:r>
-</w:p>
+<w:hyperlink r:id="rId5"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>External link</w:t></w:r></w:hyperlink>
+<w:hyperlink w:anchor="myBookmark"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>Internal link</w:t></w:r></w:hyperlink>
+<w:bookmarkStart w:id="0" w:name="myBookmark"/><w:r><w:t>Target</w:t></w:r><w:bookmarkEnd w:id="0"/>
 ```
 
-### Links (Hyperlinks)
+- **External links:** these need a relationship in `word/_rels/document.xml.rels`: `<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/" TargetMode="External"/>`.
+- **The Hyperlink style:** links look like plain text unless `styles.xml` defines it:
 
-**IMPORTANT**: All hyperlinks (both internal and external) require the Hyperlink style to be defined in styles.xml. Without this style, links will look like regular text instead of blue underlined clickable links.
-
-**External Links:**
-```xml
-<!-- In document.xml -->
-<w:hyperlink r:id="rId5">
-  <w:r>
-    <w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>
-    <w:t>Link Text</w:t>
-  </w:r>
-</w:hyperlink>
-
-<!-- In word/_rels/document.xml.rels -->
-<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" 
-              Target="https://www.example.com/" TargetMode="External"/>
-```
-
-**Internal Links:**
-
-```xml
-<!-- Link to bookmark -->
-<w:hyperlink w:anchor="myBookmark">
-  <w:r>
-    <w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>
-    <w:t>Link Text</w:t>
-  </w:r>
-</w:hyperlink>
-
-<!-- Bookmark target -->
-<w:bookmarkStart w:id="0" w:name="myBookmark"/>
-<w:r><w:t>Target content</w:t></w:r>
-<w:bookmarkEnd w:id="0"/>
-```
-
-**Hyperlink Style (required in styles.xml):**
 ```xml
 <w:style w:type="character" w:styleId="Hyperlink">
-  <w:name w:val="Hyperlink"/>
-  <w:basedOn w:val="DefaultParagraphFont"/>
-  <w:uiPriority w:val="99"/>
-  <w:unhideWhenUsed/>
-  <w:rPr>
-    <w:color w:val="467886" w:themeColor="hyperlink"/>
-    <w:u w:val="single"/>
-  </w:rPr>
+  <w:name w:val="Hyperlink"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/>
+  <w:rPr><w:color w:val="467886" w:themeColor="hyperlink"/><w:u w:val="single"/></w:rPr>
 </w:style>
 ```
 
-## Document Library (Python)
+### Parts to update when adding content
 
-Use the Document class from `scripts/document.py` for all tracked changes and comments. It automatically handles infrastructure setup (people.xml, RSIDs, settings.xml, comment files, relationships, content types). Only use direct XML manipulation for complex scenarios not supported by the library.
-
-**Working with Unicode and Entities:**
-- **Searching**: Both entity notation and Unicode characters work - `contains="&#8220;Company"` and `contains="\u201cCompany"` find the same text
-- **Replacing**: Use either entities (`&#8220;`) or Unicode (`\u201c`) - both work and will be converted appropriately based on the file's encoding (ascii → entities, utf-8 → Unicode)
-
-### Initialization
-
-**Find the docx skill root** (directory containing `scripts/` and `ooxml/`):
-```bash
-# Locate the skill root by finding document.py wherever this skill is installed
-# (e.g. ~/.claude/skills/docx or ~/.codex/skills/docx):
-find ~ -name "document.py" -path "*/docx/scripts/*" 2>/dev/null | head -1
-# Example output: ~/.claude/skills/docx/scripts/document.py
-# Skill root is the parent of scripts/, e.g. ~/.claude/skills/docx
-```
-
-**Run your script with `uv run`** (never bare `python`), with `PYTHONPATH` set to the docx skill root:
-```bash
-PYTHONPATH=<docx-skill-root> uv run your_script.py
-```
-
-**In your script**, declare dependencies with a PEP 723 header (so `uv run` resolves them) and import from the skill root:
-```python
-# /// script
-# requires-python = ">=3.12"
-# dependencies = ["lxml", "defusedxml"]
-# ///
-from scripts.document import Document, DocxXMLEditor
-
-# Basic initialization (automatically creates temp copy and sets up infrastructure)
-doc = Document('unpacked')
-
-# Customize author and initials
-doc = Document('unpacked', author="John Doe", initials="JD")
-
-# Enable track revisions mode
-doc = Document('unpacked', track_revisions=True)
-
-# Specify custom RSID (auto-generated if not provided)
-doc = Document('unpacked', rsid="07DC5ECB")
-```
-
-### Creating Tracked Changes
-
-**CRITICAL**: Only mark text that actually changes. Keep ALL unchanged text outside `<w:del>`/`<w:ins>` tags. Marking unchanged text makes edits unprofessional and harder to review.
-
-**Attribute Handling**: The Document class auto-injects attributes (w:id, w:date, w:rsidR, w:rsidDel, w16du:dateUtc, xml:space) into new elements. When preserving unchanged text from the original document, copy the original `<w:r>` element with its existing attributes to maintain document integrity.
-
-**Method Selection Guide**:
-- **Adding your own changes to regular text**: Use `replace_node()` with `<w:del>`/`<w:ins>` tags, or `suggest_deletion()` for removing entire `<w:r>` or `<w:p>` elements
-- **Partially modifying another author's tracked change**: Use `replace_node()` to nest your changes inside their `<w:ins>`/`<w:del>`
-- **Completely rejecting another author's insertion**: Use `revert_insertion()` on the `<w:ins>` element (NOT `suggest_deletion()`)
-- **Completely rejecting another author's deletion**: Use `revert_deletion()` on the `<w:del>` element to restore deleted content using tracked changes
-
-```python
-# Minimal edit - change one word: "The report is monthly" → "The report is quarterly"
-# Original: <w:r w:rsidR="00AB12CD"><w:rPr><w:rFonts w:ascii="Calibri"/></w:rPr><w:t>The report is monthly</w:t></w:r>
-node = doc["word/document.xml"].get_node(tag="w:r", contains="The report is monthly")
-rpr = tags[0].toxml() if (tags := node.getElementsByTagName("w:rPr")) else ""
-replacement = f'<w:r w:rsidR="00AB12CD">{rpr}<w:t>The report is </w:t></w:r><w:del><w:r>{rpr}<w:delText>monthly</w:delText></w:r></w:del><w:ins><w:r>{rpr}<w:t>quarterly</w:t></w:r></w:ins>'
-doc["word/document.xml"].replace_node(node, replacement)
-
-# Minimal edit - change number: "within 30 days" → "within 45 days"
-# Original: <w:r w:rsidR="00XYZ789"><w:rPr><w:rFonts w:ascii="Calibri"/></w:rPr><w:t>within 30 days</w:t></w:r>
-node = doc["word/document.xml"].get_node(tag="w:r", contains="within 30 days")
-rpr = tags[0].toxml() if (tags := node.getElementsByTagName("w:rPr")) else ""
-replacement = f'<w:r w:rsidR="00XYZ789">{rpr}<w:t>within </w:t></w:r><w:del><w:r>{rpr}<w:delText>30</w:delText></w:r></w:del><w:ins><w:r>{rpr}<w:t>45</w:t></w:r></w:ins><w:r w:rsidR="00XYZ789">{rpr}<w:t> days</w:t></w:r>'
-doc["word/document.xml"].replace_node(node, replacement)
-
-# Complete replacement - preserve formatting even when replacing all text
-node = doc["word/document.xml"].get_node(tag="w:r", contains="apple")
-rpr = tags[0].toxml() if (tags := node.getElementsByTagName("w:rPr")) else ""
-replacement = f'<w:del><w:r>{rpr}<w:delText>apple</w:delText></w:r></w:del><w:ins><w:r>{rpr}<w:t>banana orange</w:t></w:r></w:ins>'
-doc["word/document.xml"].replace_node(node, replacement)
-
-# Insert new content (no attributes needed - auto-injected)
-node = doc["word/document.xml"].get_node(tag="w:r", contains="existing text")
-doc["word/document.xml"].insert_after(node, '<w:ins><w:r><w:t>new text</w:t></w:r></w:ins>')
-
-# Partially delete another author's insertion
-# Original: <w:ins w:author="Jane Smith" w:date="..."><w:r><w:t>quarterly financial report</w:t></w:r></w:ins>
-# Goal: Delete only "financial" to make it "quarterly report"
-node = doc["word/document.xml"].get_node(tag="w:ins", attrs={"w:id": "5"})
-# IMPORTANT: Preserve w:author="Jane Smith" on the outer <w:ins> to maintain authorship
-replacement = '''<w:ins w:author="Jane Smith" w:date="2025-01-15T10:00:00Z">
-  <w:r><w:t>quarterly </w:t></w:r>
-  <w:del><w:r><w:delText>financial </w:delText></w:r></w:del>
-  <w:r><w:t>report</w:t></w:r>
-</w:ins>'''
-doc["word/document.xml"].replace_node(node, replacement)
-
-# Change part of another author's insertion
-# Original: <w:ins w:author="Jane Smith"><w:r><w:t>in silence, safe and sound</w:t></w:r></w:ins>
-# Goal: Change "safe and sound" to "soft and unbound"
-node = doc["word/document.xml"].get_node(tag="w:ins", attrs={"w:id": "8"})
-replacement = f'''<w:ins w:author="Jane Smith" w:date="2025-01-15T10:00:00Z">
-  <w:r><w:t>in silence, </w:t></w:r>
-</w:ins>
-<w:ins>
-  <w:r><w:t>soft and unbound</w:t></w:r>
-</w:ins>
-<w:ins w:author="Jane Smith" w:date="2025-01-15T10:00:00Z">
-  <w:del><w:r><w:delText>safe and sound</w:delText></w:r></w:del>
-</w:ins>'''
-doc["word/document.xml"].replace_node(node, replacement)
-
-# Delete entire run (use only when deleting all content; use replace_node for partial deletions)
-node = doc["word/document.xml"].get_node(tag="w:r", contains="text to delete")
-doc["word/document.xml"].suggest_deletion(node)
-
-# Delete entire paragraph (in-place, handles both regular and numbered list paragraphs)
-para = doc["word/document.xml"].get_node(tag="w:p", contains="paragraph to delete")
-doc["word/document.xml"].suggest_deletion(para)
-
-# Add new numbered list item
-target_para = doc["word/document.xml"].get_node(tag="w:p", contains="existing list item")
-pPr = tags[0].toxml() if (tags := target_para.getElementsByTagName("w:pPr")) else ""
-new_item = f'<w:p>{pPr}<w:r><w:t>New item</w:t></w:r></w:p>'
-tracked_para = DocxXMLEditor.suggest_paragraph(new_item)
-doc["word/document.xml"].insert_after(target_para, tracked_para)
-# Optional: add spacing paragraph before content for better visual separation
-# spacing = DocxXMLEditor.suggest_paragraph('<w:p><w:pPr><w:pStyle w:val="ListParagraph"/></w:pPr></w:p>')
-# doc["word/document.xml"].insert_after(target_para, spacing + tracked_para)
-```
-
-### Adding Comments
-
-```python
-# Add comment spanning two existing tracked changes
-# Note: w:id is auto-generated. Only search by w:id if you know it from XML inspection
-start_node = doc["word/document.xml"].get_node(tag="w:del", attrs={"w:id": "1"})
-end_node = doc["word/document.xml"].get_node(tag="w:ins", attrs={"w:id": "2"})
-doc.add_comment(start=start_node, end=end_node, text="Explanation of this change")
-
-# Add comment on a paragraph
-para = doc["word/document.xml"].get_node(tag="w:p", contains="paragraph text")
-doc.add_comment(start=para, end=para, text="Comment on this paragraph")
-
-# Add comment on newly created tracked change
-# First create the tracked change
-node = doc["word/document.xml"].get_node(tag="w:r", contains="old")
-new_nodes = doc["word/document.xml"].replace_node(
-    node,
-    '<w:del><w:r><w:delText>old</w:delText></w:r></w:del><w:ins><w:r><w:t>new</w:t></w:r></w:ins>'
-)
-# Then add comment on the newly created elements
-# new_nodes[0] is the <w:del>, new_nodes[1] is the <w:ins>
-doc.add_comment(start=new_nodes[0], end=new_nodes[1], text="Changed old to new per requirements")
-
-# Reply to existing comment
-doc.reply_to_comment(parent_comment_id=0, text="I agree with this change")
-```
-
-### Rejecting Tracked Changes
-
-**IMPORTANT**: Use `revert_insertion()` to reject insertions and `revert_deletion()` to restore deletions using tracked changes. Use `suggest_deletion()` only for regular unmarked content.
-
-```python
-# Reject insertion (wraps it in deletion)
-# Use this when another author inserted text that you want to delete
-ins = doc["word/document.xml"].get_node(tag="w:ins", attrs={"w:id": "5"})
-nodes = doc["word/document.xml"].revert_insertion(ins)  # Returns [ins]
-
-# Reject deletion (creates insertion to restore deleted content)
-# Use this when another author deleted text that you want to restore
-del_elem = doc["word/document.xml"].get_node(tag="w:del", attrs={"w:id": "3"})
-nodes = doc["word/document.xml"].revert_deletion(del_elem)  # Returns [del_elem, new_ins]
-
-# Reject all insertions in a paragraph
-para = doc["word/document.xml"].get_node(tag="w:p", contains="paragraph text")
-nodes = doc["word/document.xml"].revert_insertion(para)  # Returns [para]
-
-# Reject all deletions in a paragraph
-para = doc["word/document.xml"].get_node(tag="w:p", contains="paragraph text")
-nodes = doc["word/document.xml"].revert_deletion(para)  # Returns [para]
-```
-
-### Inserting Images
-
-**CRITICAL**: The Document class works with a temporary copy at `doc.unpacked_path`. Always copy images to this temp directory, not the original unpacked folder.
-
-```python
-from PIL import Image
-import shutil, os
-
-# Initialize document first
-doc = Document('unpacked')
-
-# Copy image and calculate full-width dimensions with aspect ratio
-media_dir = os.path.join(doc.unpacked_path, 'word/media')
-os.makedirs(media_dir, exist_ok=True)
-shutil.copy('image.png', os.path.join(media_dir, 'image1.png'))
-img = Image.open(os.path.join(media_dir, 'image1.png'))
-width_emus = int(6.5 * 914400)  # 6.5" usable width, 914400 EMUs/inch
-height_emus = int(width_emus * img.size[1] / img.size[0])
-
-# Add relationship and content type
-rels_editor = doc['word/_rels/document.xml.rels']
-next_rid = rels_editor.get_next_rid()
-rels_editor.append_to(rels_editor.dom.documentElement,
-    f'<Relationship Id="{next_rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>')
-doc['[Content_Types].xml'].append_to(doc['[Content_Types].xml'].dom.documentElement,
-    '<Default Extension="png" ContentType="image/png"/>')
-
-# Insert image
-node = doc["word/document.xml"].get_node(tag="w:p", line_number=100)
-doc["word/document.xml"].insert_after(node, f'''<w:p>
-  <w:r>
-    <w:drawing>
-      <wp:inline distT="0" distB="0" distL="0" distR="0">
-        <wp:extent cx="{width_emus}" cy="{height_emus}"/>
-        <wp:docPr id="1" name="Picture 1"/>
-        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-            <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
-              <pic:nvPicPr><pic:cNvPr id="1" name="image1.png"/><pic:cNvPicPr/></pic:nvPicPr>
-              <pic:blipFill><a:blip r:embed="{next_rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
-              <pic:spPr><a:xfrm><a:ext cx="{width_emus}" cy="{height_emus}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
-            </pic:pic>
-          </a:graphicData>
-        </a:graphic>
-      </wp:inline>
-    </w:drawing>
-  </w:r>
-</w:p>''')
-```
-
-### Getting Nodes
-
-```python
-# By text content
-node = doc["word/document.xml"].get_node(tag="w:p", contains="specific text")
-
-# By line range
-para = doc["word/document.xml"].get_node(tag="w:p", line_number=range(100, 150))
-
-# By attributes
-node = doc["word/document.xml"].get_node(tag="w:del", attrs={"w:id": "1"})
-
-# By exact line number (must be line number where tag opens)
-para = doc["word/document.xml"].get_node(tag="w:p", line_number=42)
-
-# Combine filters
-node = doc["word/document.xml"].get_node(tag="w:r", line_number=range(40, 60), contains="text")
-
-# Disambiguate when text appears multiple times - add line_number range
-node = doc["word/document.xml"].get_node(tag="w:r", contains="Section", line_number=range(2400, 2500))
-```
-
-### Saving
-
-```python
-# Save with automatic validation (copies back to original directory)
-doc.save()  # Validates by default, raises error if validation fails
-
-# Save to different location
-doc.save('modified-unpacked')
-
-# Skip validation (debugging only - needing this in production indicates XML issues)
-doc.save(validate=False)
-```
-
-### Direct DOM Manipulation
-
-For complex scenarios not covered by the library:
-
-```python
-# Access any XML file
-editor = doc["word/document.xml"]
-editor = doc["word/comments.xml"]
-
-# Direct DOM access (defusedxml.minidom.Document)
-node = doc["word/document.xml"].get_node(tag="w:p", line_number=5)
-parent = node.parentNode
-parent.removeChild(node)
-parent.appendChild(node)  # Move to end
-
-# General document manipulation (without tracked changes)
-old_node = doc["word/document.xml"].get_node(tag="w:p", contains="original text")
-doc["word/document.xml"].replace_node(old_node, "<w:p><w:r><w:t>replacement text</w:t></w:r></w:p>")
-
-# Multiple insertions - use return value to maintain order
-node = doc["word/document.xml"].get_node(tag="w:r", line_number=100)
-nodes = doc["word/document.xml"].insert_after(node, "<w:r><w:t>A</w:t></w:r>")
-nodes = doc["word/document.xml"].insert_after(nodes[-1], "<w:r><w:t>B</w:t></w:r>")
-nodes = doc["word/document.xml"].insert_after(nodes[-1], "<w:r><w:t>C</w:t></w:r>")
-# Results in: original_node, A, B, C
-```
-
-## Tracked Changes (Redlining)
-
-**Use the Document class above for all tracked changes.** The patterns below are for reference when constructing replacement XML strings.
-
-### Validation Rules
-The validator checks that the document text matches the original after reverting Claude's changes. This means:
-- **NEVER modify text inside another author's `<w:ins>` or `<w:del>` tags**
-- **ALWAYS use nested deletions** to remove another author's insertions
-- **Every edit must be properly tracked** with `<w:ins>` or `<w:del>` tags
-
-### Tracked Change Patterns
-
-**CRITICAL RULES**:
-1. Never modify the content inside another author's tracked changes. Always use nested deletions.
-2. **XML Structure**: Always place `<w:del>` and `<w:ins>` at paragraph level containing complete `<w:r>` elements. Never nest inside `<w:r>` elements - this creates invalid XML that breaks document processing.
-
-**Text Insertion:**
-```xml
-<w:ins w:id="1" w:author="Claude" w:date="2025-07-30T23:05:00Z" w16du:dateUtc="2025-07-31T06:05:00Z">
-  <w:r w:rsidR="00792858">
-    <w:t>inserted text</w:t>
-  </w:r>
-</w:ins>
-```
-
-**Text Deletion:**
-```xml
-<w:del w:id="2" w:author="Claude" w:date="2025-07-30T23:05:00Z" w16du:dateUtc="2025-07-31T06:05:00Z">
-  <w:r w:rsidDel="00792858">
-    <w:delText>deleted text</w:delText>
-  </w:r>
-</w:del>
-```
-
-**Deleting Another Author's Insertion (MUST use nested structure):**
-```xml
-<!-- Nest deletion inside the original insertion -->
-<w:ins w:author="Jane Smith" w:id="16">
-  <w:del w:author="Claude" w:id="40">
-    <w:r><w:delText>monthly</w:delText></w:r>
-  </w:del>
-</w:ins>
-<w:ins w:author="Claude" w:id="41">
-  <w:r><w:t>weekly</w:t></w:r>
-</w:ins>
-```
-
-**Restoring Another Author's Deletion:**
-```xml
-<!-- Leave their deletion unchanged, add new insertion after it -->
-<w:del w:author="Jane Smith" w:id="50">
-  <w:r><w:delText>within 30 days</w:delText></w:r>
-</w:del>
-<w:ins w:author="Claude" w:id="51">
-  <w:r><w:t>within 30 days</w:t></w:r>
-</w:ins>
-```
+- `word/_rels/document.xml.rels`: a `Relationship` for each new part, image or external link.
+- `[Content_Types].xml`: a `Default` per file extension (`png`, `jpeg`), and an `Override` per new XML part. Check before adding, since a duplicate entry corrupts the package.

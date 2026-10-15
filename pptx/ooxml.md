@@ -1,13 +1,13 @@
 # Office Open XML Technical Reference for PowerPoint
 
-**Important: Read this entire document before starting.** Critical XML schema rules and formatting requirements are covered throughout. Incorrect implementation can create invalid PPTX files that PowerPoint cannot open.
+Read this before editing slide XML: schema rules and file-update steps are spread throughout, and a mistake produces a file PowerPoint refuses to open. Run `<skill>/ooxml/scripts/validate.py` after every edit; it catches most of them.
 
 ## Technical Guidelines
 
 ### Schema Compliance
 - **Element ordering in `<p:txBody>`**: `<a:bodyPr>`, `<a:lstStyle>`, `<a:p>`
 - **Whitespace**: Add `xml:space='preserve'` to `<a:t>` elements with leading/trailing spaces
-- **Unicode**: Escape characters in ASCII content: `"` becomes `&#8220;`
+- **Text**: `unpack.py` writes UTF-8, so type any character literally, including curly quotes and CJK. Only `&`, `<` and `>` need escaping, as `&amp;`, `&lt;` and `&gt;`
 - **Images**: Add to `ppt/media/`, reference in slide XML, set dimensions to fit slide bounds
 - **Relationships**: Update `ppt/slides/_rels/slideN.xml.rels` for each slide's resources
 - **Dirty attribute**: Add `dirty="0"` to `<a:rPr>` and `<a:endParaRPr>` elements to indicate clean state
@@ -193,9 +193,7 @@
 ```xml
 <p:pic>
   <p:nvPicPr>
-    <p:cNvPr id="4" name="Picture">
-      <a:hlinkClick r:id="" action="ppaction://media"/>
-    </p:cNvPr>
+    <p:cNvPr id="4" name="Picture"/>
     <p:cNvPicPr>
       <a:picLocks noChangeAspect="1"/>
     </p:cNvPicPr>
@@ -363,10 +361,11 @@ When adding a slide to the end of the presentation:
 6. **Update `docProps/app.xml`**: Increment slide count and update statistics (if present)
 
 ### Duplicating a Slide
+Use `scripts/rearrange.py`, which copies charts, embedded workbooks, notes and every other relationship correctly. By hand:
 1. Copy the source slide XML file with a new name
 2. Update all IDs in the new slide to be unique
 3. Follow the "Adding a New Slide" steps above
-4. **CRITICAL**: Remove or update any notes slide references in `_rels` files
+4. Remove or update any notes slide references in `_rels` files: two slides must never share a notes slide
 5. Remove references to unused media files
 
 ### Reordering Slides
@@ -404,7 +403,7 @@ Note: Don't renumber remaining slides - keep their original IDs and filenames.
 
 ## Common Errors to Avoid
 
-- **Encodings**: Escape unicode characters in ASCII content: `"` becomes `&#8220;`
+- **Escaping**: `&`, `<` and `>` in text must be `&amp;`, `&lt;`, `&gt;`; everything else can be typed literally
 - **Images**: Add to `ppt/media/` and update relationship files
 - **Lists**: Omit bullets from list headers
 - **IDs**: Use valid hexadecimal values for UUIDs
@@ -412,7 +411,8 @@ Note: Don't renumber remaining slides - keep their original IDs and filenames.
 
 ## Validation Checklist for Template-Based Presentations
 
-### Before Packing, Always:
+### Before packing
+`validate.py` reports each of these (unreferenced files, undeclared parts, broken references), so fix what it lists.
 - **Clean unused resources**: Remove unreferenced media, fonts, and notes directories
 - **Fix Content_Types.xml**: Declare ALL slides, layouts, and themes present in the package
 - **Fix relationship IDs**: 

@@ -24,5 +24,3 @@ cask "libreoffice"    # soffice (pptx, xlsx, docx)
 # Optional. Uncomment what you need.
 # brew "tesseract"      # OCR for scanned PDFs
 # brew "tesseract-lang" # OCR language packs
-# brew "qpdf"           # command-line PDF recipes in pdf/SKILL.md
-# brew "coreutils"      # gtimeout, lets recalc.py enforce its timeout on macOS

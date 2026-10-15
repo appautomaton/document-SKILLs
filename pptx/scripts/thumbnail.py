@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["python-pptx", "Pillow"]
+# dependencies = ["python-pptx>=1.0", "Pillow>=10"]
 # ///
 """
 Create thumbnail grids from PowerPoint presentation slides.
@@ -49,6 +49,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ooxml" / "scripts"))
+import soffice  # noqa: E402
 from inventory import extract_text_inventory
 from PIL import Image, ImageDraw, ImageFont
 from pptx import Presentation
@@ -81,8 +83,10 @@ def main():
     parser.add_argument(
         "--cols",
         type=int,
+        choices=range(1, MAX_COLS + 1),
+        metavar=f"1-{MAX_COLS}",
         default=DEFAULT_COLS,
-        help=f"Number of columns (default: {DEFAULT_COLS}, max: {MAX_COLS})",
+        help=f"Number of columns (default: {DEFAULT_COLS})",
     )
     parser.add_argument(
         "--outline-placeholders",
@@ -92,10 +96,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate columns
-    cols = min(args.cols, MAX_COLS)
-    if args.cols > MAX_COLS:
-        print(f"Warning: Columns limited to {MAX_COLS} (requested {args.cols})")
+    cols = args.cols
 
     # Validate input
     input_path = Path(args.input)
@@ -215,25 +216,12 @@ def convert_to_images(pptx_path, temp_dir, dpi):
     if hidden_slides:
         print(f"Hidden slides: {sorted(hidden_slides)}")
 
-    pdf_path = temp_dir / f"{pptx_path.stem}.pdf"
-
     # Convert to PDF
     print("Converting to PDF...")
-    result = subprocess.run(
-        [
-            "soffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(temp_dir),
-            str(pptx_path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0 or not pdf_path.exists():
-        raise RuntimeError("PDF conversion failed")
+    try:
+        pdf_path = soffice.convert(pptx_path, temp_dir, "pdf", timeout=180)
+    except soffice.SofficeError as e:
+        raise RuntimeError(f"PDF conversion failed: {e}") from None
 
     # Convert PDF to images
     print(f"Converting to images at {dpi} DPI...")

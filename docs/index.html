@@ -298,11 +298,11 @@
         </li>
         <li>
           <span class="chip" style="--c: var(--pptx)">.pptx</span>
-          <p><b>Design and rearrange.</b> Build decks from HTML with pixel-accurate positioning, reorder and edit existing slides, and render thumbnails so the agent can check its own work.</p>
+          <p><b>Design and rearrange.</b> Build decks from HTML as native, editable slides, fill templates, duplicate and reorder slides with their charts intact, and edit speaker notes. Every deck is validated and rendered so the agent can check its own work.</p>
         </li>
         <li>
           <span class="chip" style="--c: var(--xlsx)">.xlsx</span>
-          <p><b>Model and recalculate.</b> Create and edit spreadsheets while preserving formulas, then recalculate through headless LibreOffice and get back every <code>#REF!</code> and <code>#DIV/0!</code> by cell address.</p>
+          <p><b>Model and recalculate.</b> Create and edit spreadsheets while preserving formulas, then recalculate through headless LibreOffice and get back every <code>#REF!</code>, <code>#DIV/0!</code> and circular reference by cell address.</p>
         </li>
       </ul>
     </div>
@@ -325,7 +325,7 @@ cd document-SKILLs</pre>
           <div>
             <p>Install the system tools. The Brewfile provides Poppler, Pandoc, and LibreOffice. It skips uv and Node when they are already on your PATH.</p>
             <pre tabindex="0">brew bundle --no-upgrade</pre>
-            <p>For scanned-PDF OCR, also install <code>tesseract</code> with Homebrew. HTML-to-slide rendering on macOS uses Google Chrome.</p>
+            <p>For scanned-PDF OCR, also install <code>tesseract</code> with Homebrew. HTML-to-slide rendering uses the Google Chrome you already have.</p>
           </div>
         </li>
         <li>
@@ -361,7 +361,7 @@ npm --prefix pptx ls --depth=0</pre>
           </div>
         </li>
       </ol>
-      <p>If you use the plugin installation above, follow the prerequisites in its installed <a href="https://github.com/appautomaton/document-SKILLs/blob/master/docx/SKILL.md">docx</a> and <a href="https://github.com/appautomaton/document-SKILLs/blob/master/pptx/SKILL.md">pptx</a> skills. Their Node packages must be installed in the plugin&rsquo;s skill directories.</p>
+      <p>If you use the plugin installation above, follow the prerequisites in its installed <a href="https://github.com/appautomaton/document-SKILLs/blob/master/docx/SKILL.md">docx</a> and <a href="https://github.com/appautomaton/document-SKILLs/blob/master/pptx/SKILL.md">pptx</a> skills. Those two skills install their Node packages into the plugin&rsquo;s skill directories the first time they need them.</p>
     </div>
     <aside class="note"><b>prerequisites</b><br>each skill&rsquo;s SKILL.md lists its system tools and package requirements</aside>
   </div>
@@ -370,18 +370,16 @@ npm --prefix pptx ls --depth=0</pre>
     <div>
       <h2>How it&rsquo;s built</h2>
       <div class="prose">
-        <p>Every script declares its dependencies in a <a href="https://peps.python.org/pep-0723/">PEP&nbsp;723</a> header and runs under <code>uv run</code>. There is nothing to install into, nothing to activate, and nothing to break six months later.</p>
+        <p>Every script declares its dependencies in a <a href="https://peps.python.org/pep-0723/">PEP&nbsp;723</a> header and runs under <code>uv run</code>. There is nothing to install into and nothing to activate.</p>
         <p>Each skill folder is the unit of distribution. Its prerequisites are written in the SKILL.md the agent actually reads, so a copied folder works the same on the next machine.</p>
         <p>Office file edits are validated against the ECMA-376 and ISO/IEC&nbsp;29500 schemas that define the formats, before anything is handed back to you.</p>
       </div>
     </div>
-    <aside class="note"><b>provenance</b><br>a maintained fork of Anthropic&rsquo;s official document skills, MIT licensed</aside>
   </div>
 
   <div class="row">
     <footer>
       <span>MIT license</span>
-      <a href="https://github.com/anthropics/skills">based on Anthropic&rsquo;s skills</a>
       <!-- This page is one of a set served from the same host. The link back is
            what makes them a site rather than a row of leaves. -->
       <a href="https://appautomaton.renocrypt.com/">App Automaton</a>
