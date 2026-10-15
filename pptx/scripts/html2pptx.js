@@ -114,16 +114,15 @@ function fixPresentationOrder(xml) {
 /**
  * Chart XML: 2-D charts take exactly two axis ids (PptxGenJS adds a third);
  * a line chart's <c:grouping> is required; only bar and bubble series carry
- * <c:invertIfNegative>; a series' <c:marker> precedes its data labels; and
- * value axes, which scatter charts use for X, have none of the category-axis
- * settings PptxGenJS writes into them.
+ * <c:invertIfNegative>; a series' <c:marker> and per-point colours (<c:dPt>)
+ * precede its data labels; and value axes, which scatter charts use for X,
+ * have none of the category-axis settings PptxGenJS writes into them.
  */
-function markerFirst(series) {
-  const marker = series.match(/<c:marker>[\s\S]*?<\/c:marker>/);
-  const labels = series.indexOf('<c:dLbls>');
-  if (!marker || labels < 0 || labels > marker.index) return series;
-  const rest = series.replace(marker[0], '');
-  return rest.slice(0, labels) + marker[0] + rest.slice(labels);
+function beforeLabels(series) {
+  const moved = series.match(/<c:marker>[\s\S]*?<\/c:marker>|<c:dPt>[\s\S]*?<\/c:dPt>/g);
+  if (!moved || !series.includes('<c:dLbls>')) return series;
+  const rest = moved.reduce((xml, part) => xml.replace(part, ''), series);
+  return rest.replace('<c:dLbls>', moved.join('') + '<c:dLbls>');
 }
 
 function fixChart(xml) {
@@ -133,7 +132,7 @@ function fixChart(xml) {
       body = body.replace(/<c:axId val="\d+"\/>/g, (axis) => (++count > 2 ? '' : axis));
       if (type !== 'barChart') body = body.replace(/\s*<c:invertIfNegative val="\d"\/>/g, '');
       if (type === 'lineChart' && !/^\s*<c:grouping/.test(body)) body = `<c:grouping val="standard"/>${body}`;
-      body = body.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, markerFirst);
+      body = body.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, beforeLabels);
       return `<c:${type}>${body}</c:${type}>`;
     })
     .replace(/<c:valAx>[\s\S]*?<\/c:valAx>/g, (axis) =>
@@ -157,6 +156,25 @@ const FIXES = [
   [/\.rels$/, fixAbsoluteTargets]
 ];
 
+/**
+ * Every master owns its theme. PptxGenJS points the notes master at the slide
+ * master's theme, which PowerPoint repairs on open once fixPresentationOrder
+ * puts <p:notesMasterIdLst> where it reads it. The notes master gets a copy.
+ */
+async function ownNotesTheme(zip) {
+  const relsName = 'ppt/notesMasters/_rels/notesMaster1.xml.rels';
+  const rels = zip.file(relsName) && await zip.file(relsName).async('string');
+  const shared = rels && rels.match(/Target="\.\.\/theme\/(theme\d+\.xml)"/);
+  if (!shared) return;
+  const themes = Object.keys(zip.files).filter((name) => /^ppt\/theme\/theme\d+\.xml$/.test(name));
+  const own = `theme${themes.length + 1}.xml`;
+  zip.file(`ppt/theme/${own}`, await zip.file(`ppt/theme/${shared[1]}`).async('string'));
+  zip.file(relsName, rels.replace(`../theme/${shared[1]}`, `../theme/${own}`));
+  const types = await zip.file('[Content_Types].xml').async('string');
+  zip.file('[Content_Types].xml', types.replace('</Types>',
+    `<Override PartName="/ppt/theme/${own}" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>`));
+}
+
 function ensureValidOutput(pres) {
   if (pres.__html2pptxPatched || typeof pres.exportPresentation !== 'function') return;
   const exportPresentation = pres.exportPresentation;
@@ -169,6 +187,7 @@ function ensureValidOutput(pres) {
       const fixed = fixes.reduce((text, fix) => fix(text, name), xml);
       if (fixed !== xml) zip.file(name, fixed);
     }
+    await ownNotesTheme(zip);
     const type = !props.outputType || props.outputType === 'STREAM' ? 'nodebuffer' : props.outputType;
     return zip.generateAsync({ type, compression: props.compression ? 'DEFLATE' : 'STORE' });
   };
@@ -681,9 +700,11 @@ async function extractSlideData(page) {
 
         const liElements = Array.from(el.querySelectorAll('li'));
         const paddingPt = pxToPoints(window.getComputedStyle(el).paddingLeft);
-        // The list's left padding splits evenly into bullet position and text indent.
-        const marginLeft = paddingPt * 0.5;
-        const textIndent = paddingPt * 0.5;
+        // Text starts where the browser puts it, after the list's left padding.
+        // A bullet hangs in the second half of that padding; numbers, being
+        // wider, take all of it.
+        const textIndent = el.tagName === 'OL' ? paddingPt : paddingPt * 0.5;
+        const marginLeft = paddingPt - textIndent;
         const items = [];
 
         liElements.forEach((li, idx) => {

@@ -15,7 +15,7 @@ You already know python-pptx and PptxGenJS. This skill adds a converter that tur
 uv run <skill>/scripts/thumbnail.py deck.pptx
 ```
 
-Run Python you write with its dependencies declared, either `uv run --with python-pptx script.py` or a PEP 723 header. Run Node scripts as `NODE_PATH=<skill>/node_modules node build.js`. If `<skill>/node_modules` is missing, run `npm install` there once. Rendering needs LibreOffice (`soffice`) and poppler (`pdftoppm`).
+Run Python you write with its dependencies declared, either `uv run --with python-pptx script.py` or a PEP 723 header. Run Node scripts as `NODE_PATH=<skill>/node_modules node build.js`; if `<skill>/node_modules` is missing, run `npm install` in `<skill>` once. Rendering needs LibreOffice (`soffice`) and poppler (`pdftoppm`).
 
 ## Choosing a workflow
 
@@ -34,7 +34,7 @@ markitdown labels slides from 1 (`<!-- Slide number: 1 -->`); every script here 
 1. Settle the design system (`design.md`): palette, type scale, grid. State it in two sentences before writing code.
 2. Write one HTML file per slide, following the rules in `html2pptx.md`. Mark chart and table areas with `class="placeholder"`.
 3. Write a build script that calls `html2pptx()` for each slide, adds charts and tables at the placeholders with PptxGenJS, and calls `pptx.writeFile({ fileName })`. html2pptx throws every problem on a slide at once; fix them all and rerun.
-4. Check the deck (below).
+4. Check the output (below).
 
 ## New deck from a template
 
@@ -59,7 +59,7 @@ markitdown labels slides from 1 (`<!-- Slide number: 1 -->`); every script here 
    ```bash
    uv run <skill>/scripts/replace.py working.pptx replacements.json output.pptx
    ```
-7. Check the deck (below).
+7. Check the output (below).
 
 ### Inventory and replacements
 
@@ -116,7 +116,7 @@ uv run <skill>/scripts/notes.py deck.pptx notes.json -o out.pptx
 
 The JSON maps slide keys to plain text, with one paragraph per line. An empty string clears a slide's notes, and slides not listed keep theirs. In an html2pptx build, use `slide.addNotes('…')` instead.
 
-## Checking the deck
+## Checking the output
 
 A deck is done when it validates and every slide has been looked at.
 
@@ -132,7 +132,7 @@ A deck is done when it validates and every slide has been looked at.
    `thumbnail.py deck.pptx grid --outline-placeholders` gives an overview, with every text box outlined.
 3. Fix and repeat until both are clean.
 
-## Pitfalls
+## Pitfalls that fail silently
 
 - PptxGenJS colours take no `#`. `'#C0392B'` corrupts the file.
 - Text that fits in the browser overflows in PowerPoint when a font is substituted. Keep to the font policy in `design.md`.

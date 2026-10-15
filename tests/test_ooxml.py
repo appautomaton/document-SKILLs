@@ -194,3 +194,16 @@ def test_absolute_and_external_relationship_targets(run, tmp_path, deck):
          r'Target="https://example.com/a b" TargetMode="External"/>\1')
     result = run(f"{OOXML}/validate.py", tmp_path / "u", "--original", deck)
     assert result.code == 0, result.out
+
+
+def test_masters_sharing_a_theme_are_caught(run, tmp_path, deck):
+    """PowerPoint repairs a deck whose masters share a theme, though the schema allows it."""
+    prs = Presentation(deck)
+    prs.slides[0].notes_slide.notes_text_frame.text = "Notes"
+    prs.save(deck)
+    unpack(run, deck, tmp_path / "u")
+    assert run(f"{OOXML}/validate.py", tmp_path / "u").code == 0
+    rels = tmp_path / "u" / "ppt" / "notesMasters" / "_rels" / "notesMaster1.xml.rels"
+    edit(rels, r"\.\./theme/theme\d+\.xml", "../theme/theme1.xml")
+    result = run(f"{OOXML}/validate.py", tmp_path / "u")
+    assert result.code == 1 and "share a theme" in result.out

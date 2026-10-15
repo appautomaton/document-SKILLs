@@ -33,7 +33,7 @@ ws["C5"] = "=(C4-C2)/C2"           # growth, from the cells it depends on
 ws["D3"] = "=B3*(1+$B$1)"          # assumptions live in their own cells
 ```
 
-## Recalculate and verify
+## Checking the output
 
 openpyxl writes formulas without values, so a file is not finished until it has been recalculated. Run this after every save that touched formulas, and fix what it reports before delivering:
 

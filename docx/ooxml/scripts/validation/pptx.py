@@ -72,7 +72,39 @@ class PPTXSchemaValidator(BaseSchemaValidator):
         if not self.validate_no_duplicate_slide_layouts():
             all_valid = False
 
+        # Test 11: Each master owns its theme
+        if not self.validate_theme_ownership():
+            all_valid = False
+
         return all_valid
+
+    def validate_theme_ownership(self):
+        """Validate that no two masters share a theme part.
+
+        The schema allows it, but PowerPoint repairs a file whose slide, notes
+        or handout masters point at the same theme.
+        """
+        import lxml.etree
+
+        owners = {}
+        for rels_file in sorted(self.unpacked_dir.glob("ppt/*Masters/_rels/*.xml.rels")):
+            master = rels_file.name.removesuffix(".rels")
+            root = lxml.etree.parse(str(rels_file)).getroot()
+            for rel in root:
+                if rel.get("Type", "").endswith("/theme"):
+                    theme = (rels_file.parent.parent / rel.get("Target")).resolve()
+                    owners.setdefault(theme, []).append(master)
+
+        shared = {theme: masters for theme, masters in owners.items() if len(masters) > 1}
+        if shared:
+            print("FAILED - Masters share a theme, which PowerPoint repairs on open:")
+            for theme, masters in shared.items():
+                print(f"  {theme.relative_to(self.unpacked_dir.resolve())}: {', '.join(masters)}")
+            print("Give each master its own copy of the theme.")
+            return False
+        if self.verbose:
+            print("PASSED - Every master has its own theme")
+        return True
 
     def validate_uuid_ids(self):
         """Validate that ID attributes that look like UUIDs contain only hex values."""

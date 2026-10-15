@@ -101,6 +101,9 @@ def test_html2pptx_deck_is_valid_and_keeps_formatting(run, workdir):
         assert paragraph.count("<a:pPr") <= 1
     assert [int(n) for n in re.findall(r'<a:buAutoNum type="arabicPeriod" startAt="(\d+)"', slide1)] == [1, 2, 3]
     assert "<a:br/>" in slide1 and 'u="sng"' in slide1 and 'lvl="1"' in slide1
+    # Numbers are wider than bullets, so they get more room before the text.
+    hanging = lambda marker: int(re.search(rf'marL="(\d+)"[^>]*>(?:(?!</a:pPr>).)*{marker}', slide1, re.S).group(1))
+    assert hanging("<a:buAutoNum") > hanging("<a:buChar")
     assert any(n.startswith("ppt/media/") for n in zipfile.ZipFile(deck).namelist())
 
     pages = run("pptx/ooxml/scripts/render.py", deck, workdir / "pages", cwd=workdir)
@@ -141,6 +144,10 @@ def test_pptxgenjs_charts_and_mixed_runs_come_out_valid(run, workdir):
       barGrouping: 'stacked', dataLabelPosition: type === 'BAR' ? 'outEnd' : undefined,
       showCatAxisTitle: true, catAxisTitle: 'Quarter' });
   }
+  // One highlighted bar, as design.md recommends: a colour per data point.
+  const { slide, placeholders } = await html2pptx('s.html', pptx);
+  slide.addChart(pptx.charts.BAR, [data[0]], { ...placeholders[0], showValue: true,
+    chartColors: ['B0B0B0', 'C0392B', 'B0B0B0'] });
   pptx.addSlide().addText([{ text: 'Bold ', options: { bold: true } }, { text: 'plain' }],
     { x: 1, y: 1, w: 6, h: 1 });
   await pptx.writeFile({ fileName: 'charts.pptx' });"""))

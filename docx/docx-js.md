@@ -149,7 +149,7 @@ Use a numbering config with `LevelFormat.BULLET` or `LevelFormat.DECIMAL`, never
 ## Links, bookmarks, table of contents
 
 - **Bookmarks:** create the target with `new Bookmark({ id, children })` inside a paragraph, and point at it with `new InternalHyperlink({ anchor: id, … })`. A `bookmark:` option on `Paragraph` is silently ignored.
-- **Table of contents:** `TableOfContents` inserts a field that Word fills in when it updates fields. `features: { updateFields: true }` makes Word offer to do that on open. LibreOffice and `render.py` show the table empty, which is expected.
+- **Table of contents:** `TableOfContents` inserts a field that Word fills in when it updates fields. `features: { updateFields: true }` makes Word offer to do that on open, with a prompt that the document "contains fields that may refer to other files". No other file is involved, so tell the user that accepting is safe, and leave the setting out of documents without a table of contents. LibreOffice and `render.py` show the table empty, which is expected.
 
 ## Images
 

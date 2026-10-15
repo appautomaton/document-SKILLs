@@ -15,7 +15,7 @@ You already know Word's features. This skill adds what you can't see from the co
 uv run <skill>/ooxml/scripts/unpack.py contract.docx unpacked
 ```
 
-Run Python you write with its dependencies declared, either `uv run --with defusedxml script.py` or a PEP 723 header. Run JavaScript with `NODE_PATH=<skill>/node_modules node build.js`; if `<skill>/node_modules` is missing, run `npm install` in `<skill>` once. Rendering pages needs LibreOffice (`soffice`) and poppler (`pdftoppm`); reading needs pandoc.
+Run Python you write with its dependencies declared, either `uv run --with defusedxml script.py` or a PEP 723 header. Run Node scripts as `NODE_PATH=<skill>/node_modules node build.js`; if `<skill>/node_modules` is missing, run `npm install` in `<skill>` once. Rendering pages needs LibreOffice (`soffice`) and poppler (`pdftoppm`); reading needs pandoc.
 
 ## Choosing a workflow
 
@@ -34,27 +34,16 @@ Run Python you write with its dependencies declared, either `uv run --with defus
 3. **Edit.** Read [ooxml.md](ooxml.md), then write a script that uses the `Document` library. `tracked_replace(old, new)` handles most edits: it finds text across runs and marks only the words that differ. Work in batches of related changes, a few to a dozen per script, so a failure is easy to locate. Grep `unpacked/word/document.xml` again before each batch, because line numbers move after every save.
 4. **Save.** `doc.save()` refuses to write a document with untracked edits, or with XML that breaks the schema, and prints what differs. Fix the script rather than skipping validation.
 5. **Pack.** `uv run <skill>/ooxml/scripts/pack.py unpacked reviewed.docx` repacks the file and checks that LibreOffice can open it.
-6. **Verify.** Run `pandoc --track-changes=all reviewed.docx -t markdown` and confirm every intended change appears and nothing else changed. Then render the pages (below) to check the layout.
+6. **Verify.** Run `pandoc --track-changes=all reviewed.docx -t markdown` and confirm every intended change appears and nothing else changed. Then check the output (below).
 
 To accept or reject existing changes, call `doc.accept_all_changes()` or `doc.reject_all_changes()` before making edits of your own.
 
-## Seeing the result
+## Checking the output
 
-```bash
-uv run <skill>/ooxml/scripts/render.py reviewed.docx pages            # every page
-uv run <skill>/ooxml/scripts/render.py reviewed.docx pages --pages 2-4
-```
-
-This prints one PNG path per page. Look at them before delivering a document you created or restructured. LibreOffice renders a docx-js table of contents empty; Word fills it in when it opens the file.
-
-## Validation
-
-`uv run <skill>/ooxml/scripts/validate.py reviewed.docx --original contract.docx` checks the schema, and that every change from the original is tracked. Pass `--author NAME` to let that author's earlier insertions be edited directly. Without `--original`, it checks a generated document against the schema alone. `doc.save()` runs the same checks automatically.
+1. **Validate.** `uv run <skill>/ooxml/scripts/validate.py reviewed.docx --original contract.docx` checks the schema, and that every change from the original is tracked; `doc.save()` runs the same checks. Pass `--author NAME` to let that author's earlier insertions be edited directly. For a document generated from scratch, leave out `--original` to check the schema alone.
+2. **Look.** `uv run <skill>/ooxml/scripts/render.py reviewed.docx pages` prints one PNG path per page (`--pages 2-4` for a range). Read them before delivering a document you created or restructured. LibreOffice renders a docx-js table of contents empty; Word fills it in when it opens the file.
 
 ## Pitfalls that fail silently
 
-- **Page size.** docx-js defaults to A4. Set Letter explicitly for US documents, and size tables to the page you chose: 9360 DXA of usable width on Letter, 9026 on A4, with 1-inch margins.
-- **Bookmarks.** The `bookmark:` option on a docx-js `Paragraph` is ignored, so internal links point nowhere. Use `new Bookmark({ id, children })`.
-- **Overriding heading styles.** A `paragraphStyles` entry with id `Heading1` duplicates the built-in style. Restyle headings through `styles.default.heading1`.
 - **Partial edits inside other authors' changes.** To remove text inside someone else's insertion, nest your `<w:del>` inside it. Never edit their text directly.
 - **pandoc as an editor.** It rewrites the whole document and drops formatting, comments and tracked changes. Use it to read, never to produce the deliverable.

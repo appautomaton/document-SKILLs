@@ -28,7 +28,7 @@ Run Python you write with its dependencies declared, either `uv run --with pypdf
 | Merge, split, rotate, crop, stamp, encrypt | pypdf: see [reference.md](reference.md) for the calls that keep bookmarks, links and orientation intact |
 | See what a page looks like | `scripts/convert_pdf_to_images.py` |
 
-## Look at what you produce
+## Checking the output
 
 Whenever you create or change a PDF, render the pages you touched and look at them before delivering. Check that the text is present and readable, nothing is clipped or overlapping, and every stamp or value is where it belongs:
 
