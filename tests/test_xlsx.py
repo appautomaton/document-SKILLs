@@ -53,9 +53,10 @@ def test_missing_xlfn_prefix_is_reported_and_file_untouched(run, tmp_path):
 
 
 def test_prefixed_modern_functions_evaluate(run, tmp_path):
-    path = book(tmp_path / "x.xlsx", {"A1": 5, "B1": "five", "A2": "=_xlfn.XLOOKUP(5,A1:A1,B1:B1)"})
+    # TEXTJOIN, because every LibreOffice in use has it; XLOOKUP needs 24.8 or later.
+    path = book(tmp_path / "x.xlsx", {"A1": 5, "B1": "five", "A2": '=_xlfn.TEXTJOIN("-",TRUE,A1,B1)'})
     assert run(RECALC, path).code == 0
-    assert load_workbook(path, data_only=True)["S"]["A2"].value == "five"
+    assert load_workbook(path, data_only=True)["S"]["A2"].value == "5-five"
 
 
 def test_circular_references_including_through_names(run, tmp_path):
